@@ -60,6 +60,10 @@ function limited(key: string, max: number) {
   if (!entry || now - entry.since > 60000) { entry = { count: 0, since: now }; attempts.set(key, entry); }
   return ++entry.count > max;
 }
+function sameOrigin(origin: string | undefined, host: string | undefined) {
+  if (!origin) return true;
+  try { return new URL(origin).host === host; } catch { return false; }
+}
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '32kb' }));
@@ -68,7 +72,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   const origin = req.headers.origin;
-  if (origin && new URL(origin).host !== req.headers.host) { res.status(403).json({ error: 'Origen no autoritzat' }); return; }
+  if (!sameOrigin(origin, req.headers.host)) { res.status(403).json({ error: 'Origen no autoritzat' }); return; }
   next();
 });
 function admin(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -192,7 +196,7 @@ function validFrame(f: any): f is Frame {
     f.image.length <= 180000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(f.image);
 }
 wss.on('connection', (ws, req) => {
-  if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) { ws.close(1008); return; }
+  if (!sameOrigin(req.headers.origin, req.headers.host)) { ws.close(1008); return; }
   const c: Client = { ws, alive: true, messages: 0 }; clients.add(c);
   const authTimeout = setTimeout(() => { if (!c.role) ws.close(1008, 'Authentication required'); }, 5000);
   ws.on('pong', () => { c.alive = true; });

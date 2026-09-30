@@ -33,6 +33,7 @@ function signed(msg, credentials) {
 }
 try {
   await start();
+  assert.equal((await fetch(origin + '/api/health', { headers: { Origin: 'invalid-origin' } })).status, 403);
   assert.equal((await request('/state')).status, 401);
   assert.equal((await request('/sessions', '', { name: 'unauthorised', url: 'https://example.org' })).status, 401);
   const token = (await request('/login', '', { password })).data.token; assert(token);

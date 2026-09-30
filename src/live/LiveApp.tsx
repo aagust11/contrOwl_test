@@ -163,7 +163,10 @@ function Student() {
   const buffer = useRef<Frame[]>([]); const queue = useRef<any[]>([]);
   const endedRef = useRef(false); const blockedRef = useRef(!!credentials); const readyRef = useRef(false);
   const credentialsRef = useRef(credentials); credentialsRef.current = credentials;
-  const seen = useRef(new Set<string>()); const verifier = useRef<CryptoKey | null>(null);
+  const seen = useRef<Set<string>>((() => {
+    try { return new Set<string>(JSON.parse(sessionStorage.getItem('controwl-used-commands') || '[]')); }
+    catch { return new Set<string>(); }
+  })()); const verifier = useRef<CryptoKey | null>(null);
   function stopCapture() { stream.current?.getTracks().forEach(t => { t.onended = null; t.stop(); }); stream.current = null; video.current = null; buffer.current = []; setSharing(false); }
   function finish() { endedRef.current = true; setEnded(true); stopCapture(); sessionStorage.removeItem('controwl-student'); queue.current = []; }
   const snapshot = () => {
@@ -207,6 +210,7 @@ function Student() {
       const cmd = JSON.parse(msg.payload);
       if (cmd.studentId !== creds.studentId || cmd.sessionId !== creds.session.id || cmd.expires < Date.now() || seen.current.has(cmd.commandId)) return;
       seen.current.add(cmd.commandId);
+      sessionStorage.setItem('controwl-used-commands', JSON.stringify([...seen.current].slice(-200)));
       if (cmd.kind === 'END') { send({ type: 'ACK', commandId: cmd.commandId }); finish(); }
       if (cmd.kind === 'UNLOCK') {
         if (!stream.current?.active || !readyRef.current || queue.current.length) { setError('Cal compartir la pantalla i enviar les incidències abans de desbloquejar.'); return; }
