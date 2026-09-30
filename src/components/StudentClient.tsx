@@ -97,7 +97,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
 
   // Circular buffer ticker (records 1 frame per second, maintains last 15 seconds)
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 3 || session.status !== 'active') return;
 
     const interval = setInterval(() => {
       if (isBlockedRef.current) return;
@@ -127,7 +127,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
       };
 
       const prevBuffer = circularBufferRef.current;
-      const updated = [...prevBuffer, newFrame].slice(-15);
+      const updated = [...prevBuffer, newFrame].slice(-Math.max(1, Math.min(30, session.security.bufferDurationSeconds || 15)));
       // Re-index relative seconds from -14 to 0
       const reindexed = updated.map((f, idx, arr) => ({
         ...f,
@@ -144,7 +144,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
 
   // Real Window Event Listeners for Safe Mode (Focus loss, Alt key, Tab blur)
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 3 || session.status !== 'active') return;
 
     const handleWindowBlur = () => {
       if (!isBlockedRef.current) {
@@ -177,7 +177,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [step]);
+  }, [step, session.status, connectedStudent?.id]);
 
   function getQuestionText(qNum: number): string {
     switch (qNum) {
@@ -198,16 +198,15 @@ export const StudentClient: React.FC<StudentClientProps> = ({
 
   // Trigger an incident (Used by real listeners or Sandbox test triggers)
   const triggerSecurityIncident = (type: IncidentType, detectedAction: string, description: string) => {
-    if (isBlockedRef.current) return;
+    if (isBlockedRef.current || session.status !== 'active') return;
+    isBlockedRef.current = true;
 
     const timeFormatted = new Date().toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     // Freeze circular buffer
     const frozenBuffer = [...circularBufferRef.current];
-    // If buffer has fewer than 5 frames, pad it with simulated frames for accurate review
-    const finalBuffer = frozenBuffer.length >= 10
-      ? frozenBuffer
-      : generateCircularBufferFrames(type, detectedAction, fullName || 'Alumne', timeFormatted, 15);
+    // Keep only frames actually observed in this demo; never fabricate evidence.
+    const finalBuffer = frozenBuffer;
 
     const incident: IncidentRecord = {
       id: `inc-${Date.now()}`,
@@ -237,6 +236,10 @@ export const StudentClient: React.FC<StudentClientProps> = ({
   // STEP 1: Codi de sessió
   const handleValidateCode = (e: React.FormEvent) => {
     e.preventDefault();
+    if (session.status !== 'active') {
+      setCodeError('Aquesta sessió ha finalitzat.');
+      return;
+    }
     const normalized = normalizeSessionCode(code);
     const validation = validateSessionCode(normalized);
 
@@ -246,7 +249,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
     }
 
     if (normalized !== normalizeSessionCode(session.code)) {
-      setCodeError(`Codi no coincident. Codi de la sessió activa: ${session.code}`);
+      setCodeError('Codi de sessió incorrecte.');
       return;
     }
 
@@ -262,16 +265,16 @@ export const StudentClient: React.FC<StudentClientProps> = ({
       return;
     }
 
+    if (session.status !== 'active') {
+      setNameError('Aquesta sessió ha finalitzat.');
+      return;
+    }
     setNameError('');
     onJoinSession({ fullName: fullName.trim(), deviceId });
     setStep(3);
 
-    // Initial clipboard wipe (Section 34)
-    if (session.security.wipeClipboardOnStart && navigator.clipboard) {
-      try {
-        navigator.clipboard.writeText('');
-      } catch (_) {}
-    }
+    // A demonstration must not change the user's system clipboard.
+    setInternalClipboard('');
   };
 
   // Safe mode clipboard operations (Section 33)
@@ -308,6 +311,10 @@ export const StudentClient: React.FC<StudentClientProps> = ({
     setTimeout(() => setSecurityNotification(null), 2000);
   };
 
+  if (session.status === 'finished') {
+    return <div role="status" className="p-10 text-center text-slate-200">Sessió finalitzada. La demostració ha aturat la captura de frames i els detectors.</div>;
+  }
+
   return (
     <div className="min-h-[700px] flex flex-col bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl relative">
       
@@ -322,7 +329,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-32 bg-rose-600/20 blur-3xl pointer-events-none"></div>
 
             <div className="w-20 h-20 rounded-2xl bg-rose-950/80 border-2 border-rose-500/60 p-2 flex items-center justify-center mx-auto mb-6 shadow-xl animate-pulse">
-              <img src="/contrOwl.png" alt="ContrOwl Logo" className="w-full h-full object-contain" />
+              <img src={`${import.meta.env.BASE_URL}contrOwl.png`} alt="ContrOwl Logo" className="w-full h-full object-contain" />
             </div>
 
             <h1 className="text-3xl sm:text-4xl font-black tracking-widest text-white mb-2">
@@ -395,7 +402,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto w-full my-auto">
           
           <div className="w-20 h-20 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 p-2.5 flex items-center justify-center mb-6 shadow-xl shadow-indigo-600/20">
-            <img src="/contrOwl.png" alt="ContrOwl Logo" className="w-full h-full object-contain" />
+            <img src={`${import.meta.env.BASE_URL}contrOwl.png`} alt="ContrOwl Logo" className="w-full h-full object-contain" />
           </div>
 
           <h1 className="text-2xl font-black tracking-tight text-white mb-2">
@@ -469,7 +476,7 @@ export const StudentClient: React.FC<StudentClientProps> = ({
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto w-full my-auto">
           
           <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 p-2 flex items-center justify-center mb-4 shadow-md">
-            <img src="/contrOwl.png" alt="ContrOwl Logo" className="w-full h-full object-contain" />
+            <img src={`${import.meta.env.BASE_URL}contrOwl.png`} alt="ContrOwl Logo" className="w-full h-full object-contain" />
           </div>
 
           <div className="inline-block px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-[11px] font-mono text-indigo-300 mb-3">
@@ -537,8 +544,8 @@ export const StudentClient: React.FC<StudentClientProps> = ({
             <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl text-[11px] text-slate-400 space-y-1">
               <span className="text-slate-300 font-semibold block">En prémer Continuar:</span>
               <p>• ContrOwl associarà el teu nom a aquest ordinador.</p>
-              <p>• S'activaran les restriccions del mode segur (bloqueig de canvi d'app).</p>
-              <p>• Es carregarà automàticament la URL definida pel docent.</p>
+              <p>• S’iniciarà la simulació dins d’aquesta pàgina; no es bloqueja el sistema.</p>
+              <p>• Es mostrarà l’examen de demostració, sense obrir la URL configurada.</p>
             </div>
 
             <button
@@ -565,8 +572,8 @@ export const StudentClient: React.FC<StudentClientProps> = ({
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span className="font-extrabold tracking-wide text-white flex items-center gap-1.5">
-                  <img src="/contrOwl.png" alt="ContrOwl" className="w-4 h-4 rounded object-contain inline-block" />
-                  ContrOwl SafeMode Actiu
+                  <img src={`${import.meta.env.BASE_URL}contrOwl.png`} alt="ContrOwl" className="w-4 h-4 rounded object-contain inline-block" />
+                  ContrOwl · Mode demostració
                 </span>
               </div>
               <span className="text-slate-600">|</span>

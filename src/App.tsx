@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   Shield,
   Monitor,
@@ -34,7 +34,7 @@ import { RequirementsModal } from './components/RequirementsModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'teacher' | 'student' | 'split'>('teacher');
-  const [session, setSession] = useState<ExamSession>(INITIAL_DEFAULT_SESSION);
+  const [session, setSession] = useState<ExamSession>(() => ({ ...INITIAL_DEFAULT_SESSION, createdAt: new Date().toISOString() }));
   const [students, setStudents] = useState<StudentSession[]>(() => createInitialStudents(INITIAL_DEFAULT_SESSION.id));
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
   
@@ -42,135 +42,6 @@ export default function App() {
   const [myStudentSession, setMyStudentSession] = useState<StudentSession | null>(null);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isRequirementsModalOpen, setIsRequirementsModalOpen] = useState(false);
-  const [wsConnected, setWsConnected] = useState(false);
-
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // Initialize WebSocket connection to ContrOwl Server
-  useEffect(() => {
-    let ws: WebSocket;
-    let reconnectTimeout: any;
-
-    function connect() {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-      try {
-        ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          setWsConnected(true);
-          // Register as teacher to receive state
-          ws.send(JSON.stringify({ type: 'TEACHER_JOIN', sessionId: session.id }));
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'STATE_SYNC') {
-              if (data.session) setSession(data.session);
-              if (data.students && data.students.length > 0) setStudents(data.students);
-              if (data.auditLogs && data.auditLogs.length > 0) setAuditLogs(data.auditLogs);
-            } else if (data.type === 'STUDENTS_UNLOCKED') {
-              const unlockedIds = data.studentIds as string[];
-              setStudents((prev) =>
-                prev.map((s) => {
-                  if (unlockedIds.includes(s.id)) {
-                    return {
-                      ...s,
-                      status: 'active',
-                      activeIncident: s.activeIncident
-                        ? { ...s.activeIncident, status: 'unlocked', unlockedAt: data.timestamp, unlockedBy: data.unlockedBy }
-                        : null
-                    };
-                  }
-                  return s;
-                })
-              );
-
-              if (myStudentSession && unlockedIds.includes(myStudentSession.id)) {
-                setMyStudentSession((prev) => (prev ? { ...prev, status: 'active' } : null));
-              }
-
-              if (data.auditEntry) {
-                setAuditLogs((prev) => [data.auditEntry, ...prev]);
-              }
-            } else if (data.type === 'STUDENT_INCIDENT_ALERT') {
-              const { incident, studentId, auditEntry } = data;
-              setStudents((prev) =>
-                prev.map((s) => {
-                  if (s.id === studentId) {
-                    return {
-                      ...s,
-                      status: incident.severity === 'critical_block' ? 'blocked' : 'warning',
-                      incidentCount: s.incidentCount + 1,
-                      activeIncident: incident
-                    };
-                  }
-                  return s;
-                })
-              );
-              if (auditEntry) {
-                setAuditLogs((prev) => [auditEntry, ...prev]);
-              }
-            } else if (data.type === 'STUDENT_JOINED') {
-              const { student, auditEntry } = data;
-              setStudents((prev) => {
-                const existingIdx = prev.findIndex((s) => s.id === student.id);
-                if (existingIdx >= 0) {
-                  const copy = [...prev];
-                  copy[existingIdx] = student;
-                  return copy;
-                }
-                return [student, ...prev];
-              });
-              if (auditEntry) {
-                setAuditLogs((prev) => [auditEntry, ...prev]);
-              }
-            } else if (data.type === 'SNAPSHOT_SAVED') {
-              const { studentId, snapshot, auditEntry } = data;
-              setStudents((prev) =>
-                prev.map((s) => {
-                  if (s.id === studentId) {
-                    return {
-                      ...s,
-                      snapshots: [snapshot, ...(s.snapshots || [])]
-                    };
-                  }
-                  return s;
-                })
-              );
-              if (auditEntry) {
-                setAuditLogs((prev) => [auditEntry, ...prev]);
-              }
-            }
-          } catch (err) {
-            console.error('Error parsing WS message in client:', err);
-          }
-        };
-
-        ws.onclose = () => {
-          setWsConnected(false);
-          reconnectTimeout = setTimeout(connect, 3000);
-        };
-
-        ws.onerror = () => {
-          setWsConnected(false);
-        };
-      } catch (err) {
-        console.warn('WebSocket init exception:', err);
-      }
-    }
-
-    connect();
-
-    return () => {
-      if (ws) ws.close();
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    };
-  }, [session.id]);
-
   // Handler: Teacher unlocks 1 student remotely (Section 24, 25: ZERO local passwords!)
   const handleUnlockStudent = async (studentId: string) => {
     // Optimistic UI update
@@ -181,7 +52,7 @@ export default function App() {
             ...s,
             status: 'active',
             activeIncident: s.activeIncident
-              ? { ...s.activeIncident, status: 'unlocked', unlockedAt: new Date().toLocaleTimeString('ca-ES'), unlockedBy: 'Prof. Àngel Castells' }
+              ? { ...s.activeIncident, status: 'unlocked', unlockedAt: new Date().toLocaleTimeString('ca-ES'), unlockedBy: 'Docent de demostració' }
               : null
           };
         }
@@ -198,30 +69,13 @@ export default function App() {
       sessionId: session.id,
       timestamp: new Date().toLocaleTimeString('ca-ES'),
       event: 'Desbloqueig remot autoritzat',
-      actor: 'Prof. Àngel Castells',
+      actor: 'Docent de demostració',
       details: `Ordre segura transmesa al client ${studentId}. Sessió reactivada sense contrasenya local.`,
       type: 'unlock'
     };
     setAuditLogs((prev) => [newLog, ...prev]);
 
     // Send through WS or REST
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'REMOTE_UNLOCK',
-          studentIds: [studentId],
-          teacherToken: 'auth-teacher-token-demo'
-        })
-      );
-    } else {
-      try {
-        await fetch(`/api/sessions/${session.id}/unlock`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentIds: [studentId], unlockedBy: 'Prof. Àngel Castells' })
-        });
-      } catch (_) {}
-    }
   };
 
   // Handler: Teacher unlocks multiple or all students (Section 29: Desbloqueig massiu)
@@ -233,7 +87,7 @@ export default function App() {
             ...s,
             status: 'active',
             activeIncident: s.activeIncident
-              ? { ...s.activeIncident, status: 'unlocked', unlockedAt: new Date().toLocaleTimeString('ca-ES'), unlockedBy: 'Prof. Àngel Castells' }
+              ? { ...s.activeIncident, status: 'unlocked', unlockedAt: new Date().toLocaleTimeString('ca-ES'), unlockedBy: 'Docent de demostració' }
               : null
           };
         }
@@ -250,29 +104,12 @@ export default function App() {
       sessionId: session.id,
       timestamp: new Date().toLocaleTimeString('ca-ES'),
       event: 'Desbloqueig remot múltiple',
-      actor: 'Prof. Àngel Castells',
+      actor: 'Docent de demostració',
       details: `${studentIds.length} alumnes desbloquejats simultàniament des del panell d'administració.`,
       type: 'unlock'
     };
     setAuditLogs((prev) => [newLog, ...prev]);
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'REMOTE_UNLOCK',
-          studentIds,
-          teacherToken: 'auth-teacher-token-demo'
-        })
-      );
-    } else {
-      try {
-        await fetch(`/api/sessions/${session.id}/unlock`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentIds, unlockedBy: 'Prof. Àngel Castells' })
-        });
-      } catch (_) {}
-    }
   };
 
   // Handler: Manual Snapshot by teacher (Section 15: FER CAPTURA)
@@ -308,22 +145,12 @@ export default function App() {
       sessionId: session.id,
       timestamp: new Date().toLocaleTimeString('ca-ES'),
       event: 'Captura manual desada',
-      actor: 'Prof. Àngel Castells',
+      actor: 'Docent de demostració',
       details: `Evidència visual guardada per a ${student.fullName} (${student.deviceId}).`,
       type: 'info'
     };
     setAuditLogs((prev) => [newLog, ...prev]);
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'SNAPSHOT_TAKEN',
-          sessionId: session.id,
-          studentId,
-          snapshot: newSnapshot
-        })
-      );
-    }
   };
 
   // Handler: Create new session (Section 3: Apartat d'administració)
@@ -348,31 +175,25 @@ export default function App() {
       },
       status: 'active',
       createdAt: new Date().toISOString(),
-      teacherName: 'Prof. Àngel Castells'
+      teacherName: 'Docent de demostració'
     };
 
     setSession(created);
     // Seed new session with initial class
-    setStudents(createInitialStudents(created.id));
+    setStudents([]);
+    setMyStudentSession(null);
 
     const newLog: AuditLogEntry = {
       id: `log-${Date.now()}`,
       sessionId: created.id,
       timestamp: new Date().toLocaleTimeString('ca-ES'),
       event: 'Nova sessió creada',
-      actor: 'Prof. Àngel Castells',
+      actor: 'Docent de demostració',
       details: `Codi ${created.code} assignat a ${created.name}. URL autoritzada: ${created.url}`,
       type: 'session'
     };
     setAuditLogs([newLog]);
 
-    try {
-      fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(created)
-      });
-    } catch (_) {}
   };
 
   // Handler: End session
@@ -383,21 +204,17 @@ export default function App() {
       sessionId: session.id,
       timestamp: new Date().toLocaleTimeString('ca-ES'),
       event: 'Sessió finalitzada',
-      actor: 'Prof. Àngel Castells',
+      actor: 'Docent de demostració',
       details: 'La prova ha conclòs. Tots els modes segurs s’han desactivat.',
       type: 'session'
     };
     setAuditLogs((prev) => [newLog, ...prev]);
 
-    try {
-      fetch(`/api/sessions/${session.id}/end`, { method: 'POST' });
-    } catch (_) {}
   };
 
   // Student joining from student client tab
   const handleStudentJoin = (data: { fullName: string; deviceId: string }) => {
-    const existing = students.find((s) => s.deviceId === data.deviceId);
-    const studentId = existing ? existing.id : `stud-${Date.now()}`;
+    const studentId = crypto.randomUUID();
 
     const newStudent: StudentSession = {
       id: studentId,
@@ -447,18 +264,6 @@ export default function App() {
     };
     setAuditLogs((prev) => [newLog, ...prev]);
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'STUDENT_JOIN',
-          sessionId: session.id,
-          studentId,
-          fullName: data.fullName,
-          deviceId: data.deviceId,
-          initialScreen: newStudent.currentScreen
-        })
-      );
-    }
   };
 
   // Student triggering an incident (congeals circular buffer & blocks)
@@ -501,16 +306,6 @@ export default function App() {
     };
     setAuditLogs((prev) => [newLog, ...prev]);
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'STUDENT_INCIDENT',
-          sessionId: session.id,
-          studentId: incident.studentId,
-          incident
-        })
-      );
-    }
   };
 
   // Student screen frame update
@@ -535,27 +330,16 @@ export default function App() {
       })
     );
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'STUDENT_SCREEN_UPDATE',
-          sessionId: session.id,
-          studentId: myStudentSession.id,
-          screen: {
-            lastUpdated: new Date().toISOString(),
-            screenTitle: title,
-            activeUrl: session.url,
-            svgPreview,
-            focusActive: true
-          }
-        })
-      );
-    }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       
+      <aside role="note" className="bg-amber-950 text-amber-100 border-b border-amber-700 px-4 py-3 text-sm">
+        <strong>Demostració local.</strong> Les pantalles i els alumnes inicials són simulats.
+        Prova el flux amb la Vista Dividida. No connecta ordinadors, no bloqueja el sistema
+        i no obre la URL configurada. Les dades es perden en recarregar.
+      </aside>
       {/* Top Application Header */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
@@ -564,7 +348,7 @@ export default function App() {
           <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
             <div className="flex items-center gap-3">
               <img
-                src="/contrOwl.png"
+                src={`${import.meta.env.BASE_URL}contrOwl.png`}
                 alt="ContrOwl Logo"
                 className="w-10 h-10 rounded-xl object-contain bg-slate-900 border border-indigo-500/40 p-1 shadow-md shadow-indigo-600/30"
               />
@@ -572,11 +356,11 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-black tracking-tight text-white">ContrOwl</span>
                   <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-800/40">
-                    Exàmens Digitals Segurs
+                    Prototip interactiu
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400">
-                  Institut Mollet • Supervisió docent en temps real & Desbloqueig remot
+                  Institut Mollet • Demostració de supervisió d’exàmens
                 </div>
               </div>
             </div>
@@ -623,7 +407,7 @@ export default function App() {
               }`}
             >
               <Shield className="w-4 h-4" />
-              <span>Client Alumne (Mode Segur)</span>
+              <span>Client Alumne (Demo)</span>
             </button>
 
             <button
@@ -656,8 +440,8 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400' : 'bg-emerald-400 animate-pulse'}`}></span>
-              <span className="text-[11px] font-mono">Servidor Connectat</span>
+              <span className={`w-2 h-2 rounded-full bg-amber-400`}></span>
+              <span className="text-[11px] font-mono">Demo local · Sense servidor</span>
             </div>
 
             <button
@@ -703,6 +487,7 @@ export default function App() {
         {activeTab === 'student' && (
           <div className="max-w-4xl mx-auto">
             <StudentClient
+              key={session.id}
               session={session}
               onJoinSession={handleStudentJoin}
               onTriggerIncident={handleStudentIncident}
@@ -714,6 +499,7 @@ export default function App() {
 
         {activeTab === 'split' && (
           <SplitView
+              key={session.id}
             session={session}
             students={students}
             auditLogs={auditLogs}
@@ -738,7 +524,7 @@ export default function App() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-3">
                 <img
-                  src="/contrOwl.png"
+                  src={`${import.meta.env.BASE_URL}contrOwl.png`}
                   alt="ContrOwl Logo"
                   className="w-9 h-9 rounded-lg object-contain bg-slate-950 border border-indigo-500/40 p-1"
                 />
