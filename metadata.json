@@ -1,0 +1,8 @@
+{
+  "name": "ContrOwl",
+  "description": "Sistema segur per a la realització d'exàmens digitals amb supervisió docent en temps real, buffer visual circular i desbloqueig remot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
