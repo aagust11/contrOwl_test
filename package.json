@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "start": "vite --host 0.0.0.0",
+    "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "dev:server": "tsx server.ts",
-    "test:pages": "node scripts/check-pages.mjs"
+    "test:pages": "node scripts/check-pages.mjs",
+    "test:live": "node scripts/test-live.mjs",
+    "test:live-browser": "node scripts/test-live-browser.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
