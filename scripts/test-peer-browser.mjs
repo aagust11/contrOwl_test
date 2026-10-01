@@ -14,8 +14,8 @@ let teacherContext, studentBrowser;
 const errors = [], external = [];
 function watch(page) {
   page.on('pageerror', e => errors.push(e.message));
-  page.on('websocket', ws => errors.push('Unexpected WebSocket: ' + ws.url()));
-  page.on('request', r => {if (!r.url().startsWith(origin) && !r.url().startsWith('data:') && !r.url().startsWith('https://exam.example/')) external.push(r.url());});
+  page.on('websocket', ws => {if (!ws.url().startsWith('wss://0.peerjs.com/')) errors.push('Unexpected WebSocket: ' + ws.url()); ws.on('framesent', ({payload}) => {if (typeof payload === 'string' && /data:image|Alumne de prova|Resposta conservada/.test(payload)) errors.push('Private content sent to signaling service');});});
+  page.on('request', r => {if (!r.url().startsWith(origin) && !r.url().startsWith('data:') && !r.url().startsWith('https://exam.example/') && !r.url().startsWith('https://0.peerjs.com/')) external.push(r.url());});
   page.on('dialog', d => d.accept());
 }
 async function teacher() {
@@ -26,24 +26,17 @@ async function teacher() {
   return page;
 }
 async function until(check, message) {
-  for (let n = 0; n < 220; n++) {if (await check()) return; await new Promise(r => setTimeout(r, 100));}
+  for (let n = 0; n < 900; n++) {if (await check()) return; await new Promise(r => setTimeout(r, 100));}
   throw Error(message);
 }
 async function pair(student, teacher) {
-  await student.getByRole('button', {name: 'Crear invitació', exact: true}).click();
-  const offerField = student.getByLabel('La teva invitació', {exact: true});
-  try {await until(async () => (await offerField.inputValue()).length > 100, 'Offer not generated');} catch(e) {console.log(await student.locator('main').innerText(), errors); throw e;}
-  const offer = await offerField.inputValue();
-  assert(!/stun:|turn:/.test(offer));
-  await teacher.getByLabel('Invitació de l’alumne', {exact: true}).fill(offer);
-  await teacher.getByRole('button', {name: 'Acceptar invitació', exact: true}).click();
-  const answerField = teacher.getByLabel('Resposta per a l’alumne', {exact: true});
-  await until(async () => (await answerField.inputValue()).length > 100, 'Answer not generated');
-  await student.getByLabel('Resposta del docent', {exact: true}).fill(await answerField.inputValue());
-  await student.getByRole('button', {name: 'Connectar amb el docent', exact: true}).click();
-  await until(async () => (await student.getByRole('status').allTextContents()).some(s => s.includes('Connectat directament')), 'Real WebRTC connection failed');
+  await until(async () => (await teacher.getByTestId('discovery-status').innerText()).includes('Codi actiu'), 'Session code not registered with PeerJS');
+  assert.equal(await student.locator('textarea').count(), 0, 'Manual pairing UI must be absent');
+  await student.getByRole('button', {name: 'Entrar', exact: true}).click();
+  await until(async () => (await student.getByRole('status').allTextContents()).some(s => s.includes('Connectat directament')), 'Automatic WebRTC connection failed');
   await student.getByRole('button', {name: /Compartir pantalla i continuar|Pantalla compartida/}).waitFor();
 }
+
 try {
   await until(async () => {try {return (await fetch(origin + base)).ok;} catch {return false;}}, 'Preview failed');
   let t = await teacher();
@@ -74,8 +67,8 @@ try {
   await s.getByLabel('Nom i cognoms', {exact: true}).fill('Alumne de prova');
   await s.getByLabel('Codi de sessió', {exact: true}).fill(code.toLowerCase());
   await pair(s, t);
-  assert.deepEqual(await s.evaluate(() => window.__iceConfigs), [{iceServers: []}]);
-  await s.getByRole('button', {name: 'Compartir pantalla i continuar', exact: true}).click();
+  assert((await s.evaluate(() => window.__iceConfigs)).every(c => c.iceServers.every(server => !JSON.stringify(server).includes('turn:'))), 'No relay servers allowed');
+  assert(await s.getByRole('button', {name: 'Pantalla compartida', exact: true}).isVisible(), 'Exam starts after Enter and screen consent');
   await t.getByAltText('Pantalla de Alumne de prova', {exact: true}).waitFor();
   await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').fill('Resposta conservada');
   await t.getByRole('button', {name: 'Desar captura', exact: true}).click();
@@ -93,7 +86,7 @@ try {
   t = await teacher();
   assert.equal(await t.getByTestId('session-code').innerText(), code);
   assert((await t.locator('summary').innerText()).includes('Incidències (1) i captures (1)'));
-  await pair(s, t);
+  await until(async () => (await s.getByRole('status').allTextContents()).some(v => v.includes('Connectat directament')), 'Automatic reconnect after teacher restart failed');
   await until(async () => (await t.locator('summary').innerText()).includes('Incidències (2)'), 'Buffered incident not delivered after restart');
   await until(async () => !await s.getByTestId('pending-incidents').isVisible(), 'Persisted receipt not acknowledged');
   await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
@@ -102,7 +95,7 @@ try {
   await t.getByRole('button', {name: 'Finalitzar sessió', exact: true}).click();
   await s.getByRole('heading', {name: 'Sessió finalitzada', exact: true}).waitFor();
   assert.deepEqual(external, [], 'Unexpected external service request'); assert.deepEqual(errors, [], 'Browser errors');
-  console.log('PASS: two native browsers, host-only WebRTC, screen frames, snapshot, incident, signed unlock, iframe answers, full teacher restart, local recovery, queued redelivery, finalization, no external services.');
+  console.log('PASS: two native browsers, automatic code-based PeerJS/WebRTC, screen frames, snapshot, incident, signed unlock, iframe answers, full teacher restart, local recovery, queued redelivery, finalization, only declared free signaling service; private data stays on direct channel.');
 } finally {
   await teacherContext?.close(); await studentBrowser?.close(); server.kill(); await rm(profile, {recursive: true, force: true});
 }

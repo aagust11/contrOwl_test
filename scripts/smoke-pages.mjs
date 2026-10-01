@@ -17,7 +17,7 @@ try {
   page.on('websocket', ws => errors.push(ws.url()));
   await page.goto(origin + base, {waitUntil: 'networkidle'});
   assert(await page.getByRole('heading', {name: 'Entrar a la sessió'}).isVisible());
-  assert(await page.getByRole('button', {name: 'Crear invitació'}).isEnabled());
+  assert(await page.getByRole('button', {name: 'Entrar'}).isEnabled());
   assert(await page.locator('header img').evaluate(img => img.complete && img.naturalWidth > 0));
   await page.goto(origin + base + 'administration/', {waitUntil: 'networkidle'});
   assert(await page.getByRole('heading', {name: 'Panell de control'}).isVisible());
