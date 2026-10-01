@@ -89,13 +89,13 @@ try {
   // Full teacher browser restart preserves IndexedDB, including the signing identity.
   await teacherContext.close(); teacherContext = undefined;
   await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).waitFor();
-  await until(async () => (await s.locator('main').innerText()).includes('incidències pendents'), 'Offline incident not queued');
+  await until(async () => await s.getByTestId('pending-incidents').isVisible(), 'Offline incident not queued');
   t = await teacher();
   assert.equal(await t.getByTestId('session-code').innerText(), code);
   assert((await t.locator('summary').innerText()).includes('Incidències (1) i captures (1)'));
   await pair(s, t);
   await until(async () => (await t.locator('summary').innerText()).includes('Incidències (2)'), 'Buffered incident not delivered after restart');
-  await until(async () => !(await s.locator('main').innerText()).includes('incidències pendents'), 'Persisted receipt not acknowledged');
+  await until(async () => !await s.getByTestId('pending-incidents').isVisible(), 'Persisted receipt not acknowledged');
   await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
   await until(async () => !await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).isVisible(), 'Reconnect unlock failed');
   assert.equal(await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').inputValue(), 'Resposta conservada');
