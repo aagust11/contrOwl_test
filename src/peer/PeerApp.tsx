@@ -263,11 +263,13 @@ function StudentPanel() {
           }
           if (!publicKey.current) return;
           const p = await verify(publicKey.current, envelope);
+          if (peer.current !== connection || !connection.connected) return;
           if (p.pair !== invitation.current?.id || p.student !== state.current!.id || !Number.isFinite(p.expires) || p.expires < Date.now() || seen.current.has(p.nonce)) return;
           seen.current.add(p.nonce);
           if (p.type === 'config') {
             if (typeof p.url !== 'string' || new URL(p.url).protocol !== 'https:' || typeof p.title !== 'string') return;
             await save({...state.current!, pinned: await fingerprint(publicKey.current)});
+            if (peer.current !== connection || !connection.connected) return;
             clearTimeout(timeout); authenticated.current = true; setConnected(true); setBusy(false); setError(''); setStatus('Connectat directament amb el docent');
             const c = {title: p.title, url: p.url, ended: !!p.ended}; setConfig(c); configRef.current = c;
             if (!p.ended && share.current) {setStarted(true); active.current = true; await save({...state.current!, inExam: true});}

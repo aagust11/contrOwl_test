@@ -52,7 +52,7 @@ try {
   await s.addInitScript(() => {
     window.__iceConfigs = [];
     const NativePeer = window.RTCPeerConnection;
-    window.RTCPeerConnection = class extends NativePeer {constructor(config) {super(config); window.__iceConfigs.push(config);}};
+    window.RTCPeerConnection = class extends NativePeer {constructor(config) {super(config); window.__iceConfigs.push({config, pc: this});}};
     // Synthetic image source only. Native getDisplayMedia permission UI is a manual classroom test.
     navigator.mediaDevices.getDisplayMedia = async () => {
       const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
@@ -67,7 +67,9 @@ try {
   await s.getByLabel('Nom i cognoms', {exact: true}).fill('Alumne de prova');
   await s.getByLabel('Codi de sessió', {exact: true}).fill(code.toLowerCase());
   await pair(s, t);
-  assert((await s.evaluate(() => window.__iceConfigs)).every(c => c.iceServers.every(server => !JSON.stringify(server).includes('turn:'))), 'No relay servers allowed');
+  // PeerJS creates a closed feature-probe PC on import. Inspect the actual connected PC.
+  const configs = await s.evaluate(() => window.__iceConfigs.filter(v => v.pc.connectionState === 'connected').map(v => v.config));
+  assert(configs.length > 0 && configs.every(c => c.iceServers.every(server => !/turns?:/.test(JSON.stringify(server)))), 'No relay servers allowed on active connections');
   assert(await s.getByRole('button', {name: 'Pantalla compartida', exact: true}).isVisible(), 'Exam starts after Enter and screen consent');
   await t.getByAltText('Pantalla de Alumne de prova', {exact: true}).waitFor();
   await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').fill('Resposta conservada');
@@ -92,6 +94,11 @@ try {
   await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
   await until(async () => !await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).isVisible(), 'Reconnect unlock failed');
   assert.equal(await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').inputValue(), 'Resposta conservada');
+  await t.getByRole('button', {name: 'Bloquejar', exact: true}).click();
+  await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).waitFor();
+  await until(async () => (await t.locator('summary').innerText()).includes('Incidències (3)'), 'Remote lock evidence missing');
+  await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
+  await until(async () => !await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).isVisible(), 'Remote lock release failed');
   await t.getByRole('button', {name: 'Finalitzar sessió', exact: true}).click();
   await s.getByRole('heading', {name: 'Sessió finalitzada', exact: true}).waitFor();
   assert.deepEqual(external, [], 'Unexpected external service request'); assert.deepEqual(errors, [], 'Browser errors');
