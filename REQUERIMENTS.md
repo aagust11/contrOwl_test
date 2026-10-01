@@ -1,91 +1,79 @@
-# ContrOwl — estat del flux connectat
+# ContrOwl — requeriments i límits del mode web directe
 
-Revisió 01/10/2026. Arquitectura actual: **aplicació web amb servidor allotjat persistent**. Portada d’alumnes a /; panell docent protegit a /administration. Tancar el panell no finalitza l’examen. El servei rep i desa les incidències mentre el docent no hi és. GitHub Pages allotja la interfície i pot redirigir al servei; l’allotjament persistent encara s’ha d’activar.
+Revisió 01/10/2026. Prioritat acordada: **tot web, gratuït i sense serveis externs per transportar ni desar les dades de supervisió**. GitHub Pages serveix l’aplicació estàtica. El transport és WebRTC entre alumne i docent, sense servidor de senyalització ni STUN/TURN. La persistència és local (IndexedDB), no un servei persistent.
 
-Font de la matriu: els 40 requisits originals del repositori. Encara no s’ha pogut contrastar l’adjunt extern Requirements.md amb les eines disponibles.
+IMPLEMENTAT significa present al flux real. PARCIAL indica un límit concret; DEMO només existeix amb dades simulades a `?demo=1`. No es considera implementat un control del sistema que el navegador no pot exercir.
 
-## Estat actual
+## Matriu dels 40 requisits originals del repositori
 
-IMPLEMENTAT significa codi present en el flux connectat, PARCIAL indica límits pendents, PENDENT és absent i DEMO només existeix a la demostració anterior. Les proves automatitzades de transport i navegador no acrediten bloqueig del sistema ni substitueixen la prova de l’aula.
-
-| ID | Requeriment | Estat | Evidència i límit |
+| ID | Requeriment | Estat | Evidència i límit actual |
 |---|---|---|---|
-| REQ-01 | **Logo oficial ContrOwl**: Integració del fitxer d'imatge `contrOwl.png` a la capçalera, favicon, pantalla d'inici i pantalla de bloqueig. | IMPLEMENTAT | Logo tant a Pages com al servidor docent. |
-| REQ-02 | **Document de requeriments viu**: Creació i actualització d'un document complet amb coses demanades, fetes, no fetes i comprovades. | IMPLEMENTAT | Document actualitzat amb límits i proves reals. |
-| REQ-03 | **Temporitzador d'examen configurable**: El professor pot definir la durada (ex. 30, 45, 60, 90, 120 min o personalitzat / sense límit). | PENDENT | El flux connectat encara no inclou durada configurable. |
-| REQ-04 | **Temporitzador visible a l'alumne**: Compte enrere en directe al client de l'alumne amb format `MM:SS`, barra de progrés i canvi de color (verd, ambre &lt;10m, vermell polsant &lt;3m, temps exhaurit). | PENDENT | Temporitzador disponible només a la demo anterior. |
-| REQ-05 | **Temporitzador al panell docent**: Indicador del compte enrere i temps restant de la sessió visible per al professor. | PENDENT | Cal temporització autoritativa al servidor. |
-| REQ-06 | **Creació de sessions**: Formulari de configuració amb nom, assignatura, grup, URL autoritzada i paràmetres de seguretat. | IMPLEMENTAT | POST autenticat; sessions persistents al servidor persistent. |
-| REQ-07 | **Codi de sessió de 6 caràcters**: Codi únic de 6 dígits generat automàticament o manualment. | IMPLEMENTAT | Generació aleatòria o manual; 6 caràcters i unicitat de sessions actives. |
-| REQ-08 | **Caràcters no ambigus**: Exclusió de caràcters confusibles (`0`, `O`, `1`, `I`, `L`), usant l'alfabet segur `23456789ABCDEFGHJKMNPQRSTUVWXYZ`. | IMPLEMENTAT | Alfabet no ambigu per generació; manual admet lletres A-Z i números 2-9. |
-| REQ-09 | **Insensibilitat a majúscules/minúscules**: Normalització automàtica de codis (`k7m4px` = `K7M4PX`). | IMPLEMENTAT | Client i servidor normalitzen majúscules. |
-| REQ-10 | **Accés senzill de l'alumnat**: Pantalla minimalista per introduir exclusivament el codi `[ _ _ _ _ _ _ ]` i botó ENTRAR. | PARCIAL | Cal conèixer l’adreça del PC docent; després codi i identificació. |
-| REQ-11 | **Identificació obligatòria de l'alumne**: Demanar nom i cognoms abans de carregar la URL. La prova no s'obre sense identificació. | IMPLEMENTAT | Nom i dispositiu obligatoris abans de mostrar l’examen. |
-| REQ-12 | **Associació alumne-dispositiu**: Vincular sessió, nom, dispositiu (ex. *Laia Martínez — PC-23*), IP i hora d'entrada. | PARCIAL | UUID i credencial separada; nom i equip declarats, no identitat institucional verificada. |
-| REQ-13 | **Càrrega automàtica de la URL**: L'alumnat no escriu la URL; el codi de sessió determina la pàgina que s'obre automàticament. | PARCIAL | URL real dins iframe després de compartir pantalla; requereix que el web permeti ser incrustat. |
-| REQ-14 | **Panell del docent (Taula)**: Llista de tots els alumnes connectats amb estat (🟢 Actiu, 🟡 Groc, 🔴 Bloc, ⚫ Offline) i incidències. | IMPLEMENTAT | Alumnes reals connectats per WebSocket, sense mocks en el flux principal. |
-| REQ-15 | **Vista en directe de pantalles (Grid)**: Targetes de cada alumne amb miniatura, estat, nom, última actualització (*fa 1 s*) i alertes. | IMPLEMENTAT | JPEG de la pantalla autoritzada, amb hora de recepció i avís de desactualització. |
-| REQ-16 | **Supervisió eficient de pantalla**: Actualització lleugera sense vídeo pesat a 60 FPS, optimitzada per a aules de 24+ dispositius. | PARCIAL | 960 px, JPEG qualitat 0,45 i 1 FPS; pendent càrrega real de 30 PC. |
-| REQ-17 | **Vista ampliada de l'alumne**: Clic a qualsevol alumne per obrir modal a pantalla completa amb detalls, IP, pantalles i controls. | IMPLEMENTAT | Detall, imatge ampliada, incidències i captures des del servidor persistent. |
-| REQ-18 | **Captura manual ("FER CAPTURA")**: Botó al panell docent que genera immediatament una captura vinculada a alumne, sessió i hora. | IMPLEMENTAT | Ordre signada al client; es desa la captura quan es rep. |
-| REQ-19 | **Captures automàtiques per incidència**: Generació automàtica d'evidència visual davant intents d'Alt+Tab o canvi d'app. | PARCIAL | Envia buffer en ocultar pestanya o aturar captura; no detecta processos del sistema. |
-| REQ-20 | **Buffer visual circular (10-15 segons)**: Memòria circular local que enregistra constantment els últims segons de pantalla de cada alumne. | IMPLEMENTAT | Fins a 15 frames/15 segons en memòria de l’alumne. |
-| REQ-21 | **Congelació del buffer davant incidència**: Davant infracció crítica, el buffer es congela i es transmet complet al docent. | IMPLEMENTAT | Congela frames disponibles i els envia al servidor persistent; sense farciment fictici. |
-| REQ-22 | **Revisió interactiva de l'historial visual**: Reproductor amb cursor temporal (`◀─────●─────▶ -15s ... 0s`) per analitzar la causa del bloqueig. | IMPLEMENTAT | Cursor per revisar els frames rebuts; buits explícits. |
-| REQ-23 | **Motiu exacte del bloqueig**: Diagnòstic clar en pantalla (`ALT + TAB detectat`, `Tecla Windows detectada`, `Intent d’obrir chrome.exe`, etc.). | PARCIAL | Descriu senyals observats; no afirma saber quin procés ha obert l’alumne. |
-| REQ-24 | **Bloqueig net de l'alumne**: Pantalla amb *"CONTROWL — Sessió temporalment bloquejada. Espera que el professor desbloquegi el dispositiu."* | PARCIAL | Pausa la pàgina; no bloqueja el sistema. Manté l’iframe per preservar respostes. |
-| REQ-25 | **Absència de contrasenya local al dispositiu de l'alumne**: No existeix camp d'administrador ni contrasenya que el professor hagi de teclejar a l'ordinador de l'alumne. | IMPLEMENTAT | Cap contrasenya de desbloqueig a l’alumne; credencial docent separada. |
-| REQ-26 | **Desbloqueig remot directe**: El professor prem "DESBLOQUEJAR" des del seu ordinador i el client s'allibera a l'instant per xarxa. | IMPLEMENTAT | Ordre ECDSA amb sessió/dispositiu, nonce, caducitat i confirmació del client. |
-| REQ-27 | **Desbloqueig massiu**: Opcions per desbloquejar l'alumne seleccionat, un grup o **"Desbloquejar tots"** simultàniament. | IMPLEMENTAT | Envia ordres individuals a tots els alumnes connectats bloquejats. |
-| REQ-28 | **Registre d'auditoria (Audit Log)**: Traçabilitat de cada bloqueig, acció detectada, revisió del professor i hora de desbloqueig. | PARCIAL | Registre persistent i exportable al servidor persistent; no és immutable davant administrador local. |
-| REQ-29 | **Mode segur (Restriccions de teclat)**: Bloqueig d'Alt+Tab, Tecla Windows, Win+D, Win+E, Alt+F4, Ctrl+Shift+Esc, PrintScreen. | PENDENT | Requereix client natiu/quiosc gestionat. |
-| REQ-30 | **Navegació restringida i llista blanca**: Permetre només la URL autoritzada i dominis de la llista blanca (`insmollet.cat`, `geogebra.org`, etc.). | PARCIAL | URL HTTPS inicial i iframe restringit; no és llista blanca del sistema. |
-| REQ-31 | **Control del porta-retalls**: Opcions de Bloquejat, Intern (recomanat) o Permès. | PENDENT | Sense control general del porta-retalls en el client web real. |
-| REQ-32 | **Neteja inicial del porta-retalls**: Buidar el porta-retalls en arrencar l'examen per evitar enganxar apunts preparats. | PENDENT | No es modifica el porta-retalls del sistema. |
-| REQ-33 | **Detecció d'aplicacions externes**: Detectar obertura o intent d'accés a Chrome, Discord, ChatGPT, etc. | PENDENT | El navegador no enumera processos externs. |
-| REQ-34 | **Monitorització del focus**: Registrar immediatament pèrdues de focus de la finestra de ContrOwl amb durada en segons. | PARCIAL | visibilitychange detecta pestanya oculta; no identifica totes les pèrdues de focus o aplicacions. |
-| REQ-35 | **Codis de colors d'estat**: Verd (actiu), Groc (incidència menor), Vermell (bloquejat), Gris (offline). | IMPLEMENTAT | Estats de connexió, bloqueig i pantalla desactualitzada. |
-| REQ-36 | **Privacitat per disseny**: Monitorització exclusivament durant la sessió; es desactiva en concloure la prova. | PARCIAL | Captura visible autoritzada, s’atura en finalitzar; retenció limitada, exportació i esborrat. Pendent validació organitzativa del centre. |
-| REQ-37 | **Resiliència davant caiguda de xarxa**: Si cau la connexió, el mode segur continua actiu i no s'allibera l'entorn. | PARCIAL | Reconnexió autenticada i bloqueig conservat al servidor. No hi ha client de sistema inviolable. |
-| REQ-38 | **Vista Dividida (Dual)**: Manera interactiva per visualitzar i testar el panell docent i el client alumne alhora. | DEMO | Vista dividida anterior conservada a ?demo=1. |
-| REQ-39 | **Contingut d'examen interactiu**: Prova realista d'estructures (Institut Mollet) amb preguntes, navegació i càlculs. | DEMO | Examen d’estructures només a la demo; flux real carrega la URL del docent. |
-| REQ-40 | **Simulador de seguretat docent**: Botons per disparar i provar directament les deteccions (Alt+Tab, Win, Focus, etc.). | DEMO | Botons simuladors només a la demo. Proves connectades separades. |
+| REQ-01 | **Logo oficial ContrOwl**: Integració del fitxer d'imatge `contrOwl.png` a la capçalera, favicon, pantalla d'inici i pantalla de bloqueig. | PARCIAL | Logo a la capçalera i favicon; no es replica a totes les pantalles. |
+| REQ-02 | **Document de requeriments viu**: Creació i actualització d'un document complet amb coses demanades, fetes, no fetes i comprovades. | IMPLEMENTAT | Aquest document diferencia codi real, límits web i demostració. |
+| REQ-03 | **Temporitzador d'examen configurable**: El professor pot definir la durada (ex. 30, 45, 60, 90, 120 min o personalitzat / sense límit). | PENDENT | La sessió es finalitza manualment; no té durada configurable. |
+| REQ-04 | **Temporitzador visible a l'alumne**: Compte enrere en directe al client de l'alumne amb format `MM:SS`, barra de progrés i canvi de color (verd, ambre &lt;10m, vermell polsant &lt;3m, temps exhaurit). | DEMO | Temporitzador només a la demostració anterior. |
+| REQ-05 | **Temporitzador al panell docent**: Indicador del compte enrere i temps restant de la sessió visible per al professor. | PENDENT | Sense compte enrere al flux directe. |
+| REQ-06 | **Creació de sessions**: Formulari de configuració amb nom, assignatura, grup, URL autoritzada i paràmetres de seguretat. | PARCIAL | Nom i URL HTTPS; falta assignatura, grup i configuració avançada. |
+| REQ-07 | **Codi de sessió de 6 caràcters**: Codi únic de 6 dígits generat automàticament o manualment. | IMPLEMENTAT | Sis caràcters aleatoris, únics dins el perfil docent. Identifiquen la sessió, no substitueixen l’aparellament. |
+| REQ-08 | **Caràcters no ambigus**: Exclusió de caràcters confusibles (`0`, `O`, `1`, `I`, `L`), usant l'alfabet segur `23456789ABCDEFGHJKMNPQRSTUVWXYZ`. | IMPLEMENTAT | Alfabet 23456789ABCDEFGHJKMNPQRSTUVWXYZ, sense 0/O/1/I/L. |
+| REQ-09 | **Insensibilitat a majúscules/minúscules**: Normalització automàtica de codis (`k7m4px` = `K7M4PX`). | IMPLEMENTAT | El formulari d’alumne normalitza a majúscules. |
+| REQ-10 | **Accés senzill de l'alumnat**: Pantalla minimalista per introduir exclusivament el codi `[ _ _ _ _ _ _ ]` i botó ENTRAR. | PARCIAL | Nom, codi i intercanvi manual d’invitació/resposta: imprescindible sense servei de descoberta. |
+| REQ-11 | **Identificació obligatòria de l'alumne**: Demanar nom i cognoms abans de carregar la URL. La prova no s'obre sense identificació. | IMPLEMENTAT | Nom obligatori abans de crear la invitació. Identitat autodeclarada. |
+| REQ-12 | **Associació alumne-dispositiu**: Vincular sessió, nom, dispositiu (ex. *Laia Martínez — PC-23*), IP i hora d'entrada. | PARCIAL | UUID i token de reconnexió vinculats al perfil del navegador; sense verificació institucional ni nom d’equip/IP a la UI. |
+| REQ-13 | **Càrrega automàtica de la URL**: L'alumnat no escriu la URL; el codi de sessió determina la pàgina que s'obre automàticament. | PARCIAL | URL enviada pel docent i mostrada després del permís de captura; ha de permetre iframe. |
+| REQ-14 | **Panell del docent (Taula)**: Llista de tots els alumnes connectats amb estat (🟢 Actiu, 🟡 Groc, 🔴 Bloc, ⚫ Offline) i incidències. | PARCIAL | Targetes de connexió, bloqueig i incidències reals; sense vista de taula separada. |
+| REQ-15 | **Vista en directe de pantalles (Grid)**: Targetes de cada alumne amb miniatura, estat, nom, última actualització (*fa 1 s*) i alertes. | PARCIAL | Miniatures reals rebudes per WebRTC; no hi ha indicador temporal de pantalla desactualitzada. |
+| REQ-16 | **Supervisió eficient de pantalla**: Actualització lleugera sense vídeo pesat a 60 FPS, optimitzada per a aules de 24+ dispositius. | PARCIAL | JPEG de fins a 960 px, qualitat 0,45, 1 FPS; pendent validació de 24–30 equips. |
+| REQ-17 | **Vista ampliada de l'alumne**: Clic a qualsevol alumne per obrir modal a pantalla completa amb detalls, IP, pantalles i controls. | PARCIAL | Proves i controls a la targeta; falta modal ampliat i informació d’IP. |
+| REQ-18 | **Captura manual ("FER CAPTURA")**: Botó al panell docent que genera immediatament una captura vinculada a alumne, sessió i hora. | IMPLEMENTAT | Ordre signada de captura; desat local al docent amb hora i alumne. |
+| REQ-19 | **Captures automàtiques per incidència**: Generació automàtica d'evidència visual davant intents d'Alt+Tab o canvi d'app. | PARCIAL | Captures en ocultar la pàgina, aturar compartició o desconnectar. No identifica Alt+Tab ni processos. |
+| REQ-20 | **Buffer visual circular (10-15 segons)**: Memòria circular local que enregistra constantment els últims segons de pantalla de cada alumne. | IMPLEMENTAT | Fins a 15 fotogrames/15 segons locals; pot haver-n’hi menys per permisos o limitació del navegador. |
+| REQ-21 | **Congelació del buffer davant incidència**: Davant infracció crítica, el buffer es congela i es transmet complet al docent. | IMPLEMENTAT | Es copia el buffer disponible i s’envia directament; les incidències sense connexió queden pendents. |
+| REQ-22 | **Revisió interactiva de l'historial visual**: Reproductor amb cursor temporal (`◀─────●─────▶ -15s ... 0s`) per analitzar la causa del bloqueig. | IMPLEMENTAT | Cursor per triar fotogrames de la incidència amb hora. |
+| REQ-23 | **Motiu exacte del bloqueig**: Diagnòstic clar en pantalla (`ALT + TAB detectat`, `Tecla Windows detectada`, `Intent d’obrir chrome.exe`, etc.). | PARCIAL | Descriu el senyal observat, sense inventar la tecla o aplicació que l’ha causat. |
+| REQ-24 | **Bloqueig net de l'alumne**: Pantalla amb *"CONTROWL — Sessió temporalment bloquejada. Espera que el professor desbloquegi el dispositiu."* | PARCIAL | Bloqueja la pàgina d’examen mantenint l’iframe muntat; no bloqueja el sistema operatiu. |
+| REQ-25 | **Absència de contrasenya local al dispositiu de l'alumne**: No existeix camp d'administrador ni contrasenya que el professor hagi de teclejar a l'ordinador de l'alumne. | IMPLEMENTAT | Desbloqueig pel canal del docent, sense contrasenya local d’alumne. |
+| REQ-26 | **Desbloqueig remot directe**: El professor prem "DESBLOQUEJAR" des del seu ordinador i el client s'allibera a l'instant per xarxa. | IMPLEMENTAT | Ordre ECDSA dirigida a l’aparellament actual. No allibera una incidència posterior. |
+| REQ-27 | **Desbloqueig massiu**: Opcions per desbloquejar l'alumne seleccionat, un grup o **"Desbloquejar tots"** simultàniament. | PENDENT | Desbloqueig individual; falta selecció múltiple/desbloqueig general. |
+| REQ-28 | **Registre d'auditoria (Audit Log)**: Traçabilitat de cada bloqueig, acció detectada, revisió del professor i hora de desbloqueig. | PARCIAL | Incidències i captures persistents/exportables; falta registre de totes les accions del docent. |
+| REQ-29 | **Mode segur (Restriccions de teclat)**: Bloqueig d'Alt+Tab, Tecla Windows, Win+D, Win+E, Alt+F4, Ctrl+Shift+Esc, PrintScreen. | NO VIABLE EN WEB PURA | El navegador no pot impedir tecles globals del sistema; caldria un entorn gestionat fora d’aquest abast. |
+| REQ-30 | **Navegació restringida i llista blanca**: Permetre només la URL autoritzada i dominis de la llista blanca (`insmollet.cat`, `geogebra.org`, etc.). | PARCIAL | URL inicial HTTPS i iframe amb sandbox. No restringeix la navegació d’altres pestanyes ni del sistema. |
+| REQ-31 | **Control del porta-retalls**: Opcions de Bloquejat, Intern (recomanat) o Permès. | PENDENT | No hi ha control global del porta-retalls des d’aquesta web. |
+| REQ-32 | **Neteja inicial del porta-retalls**: Buidar el porta-retalls en arrencar l'examen per evitar enganxar apunts preparats. | PENDENT | No es buida el porta-retalls del sistema. |
+| REQ-33 | **Detecció d'aplicacions externes**: Detectar obertura o intent d'accés a Chrome, Discord, ChatGPT, etc. | NO VIABLE EN WEB PURA | Una pàgina no pot enumerar processos/aplicacions externes. |
+| REQ-34 | **Monitorització del focus**: Registrar immediatament pèrdues de focus de la finestra de ContrOwl amb durada en segons. | PARCIAL | visibilitychange detecta pàgina oculta; no totes les pèrdues de focus, durades ni aplicacions. |
+| REQ-35 | **Codis de colors d'estat**: Verd (actiu), Groc (incidència menor), Vermell (bloquejat), Gris (offline). | PARCIAL | Verd connectat/gris desconnectat, bloqueig indicat amb text; falta codificació completa de quatre estats. |
+| REQ-36 | **Privacitat per disseny**: Monitorització exclusivament durant la sessió; es desactiva en concloure la prova. | PARCIAL | Captura explícita sense àudio i aturada en finalitzar. Alumnes desconnectats reben la finalització en reconnectar. Falta política de retenció automàtica. |
+| REQ-37 | **Resiliència davant caiguda de xarxa**: Si cau la connexió, el mode segur continua actiu i no s'allibera l'entorn. | PARCIAL | Bloqueig i incidències locals; recuperació docent i reenviament en reaparellar manualment. No és control inviolable del sistema. |
+| REQ-38 | **Vista Dividida (Dual)**: Manera interactiva per visualitzar i testar el panell docent i el client alumne alhora. | DEMO | La vista dividida anterior es conserva a ?demo=1. |
+| REQ-39 | **Contingut d'examen interactiu**: Prova realista d'estructures (Institut Mollet) amb preguntes, navegació i càlculs. | DEMO | L’examen d’estructures és a la demostració; el flux real carrega l’examen del docent. |
+| REQ-40 | **Simulador de seguretat docent**: Botons per disparar i provar directament les deteccions (Alt+Tab, Win, Focus, etc.). | DEMO | Simuladors a la demostració. El flux principal utilitza incidències reals del navegador. |
 
-## Seguretat i dades
+## Requisits web i recuperació
 
-- Autenticació docent, tokens diferenciats, comprovació d’origen, rate limits i límits de missatge.
-- L’alumne només rep les seves ordres i confirmacions. Només el docent rep imatges i estat general.
-- Desbloqueig signat ECDSA P-256: destinatari, sessió, commandId únic, caducitat de 30 segons i ACK. Una confirmació repetida no desbloqueja una incidència nova.
-- Desconnexió/reinici/reconnexió mantenen la pàgina bloquejada fins a autorització del docent.
-- Captura explícitament autoritzada de pantalla sencera, sense àudio; 1 JPEG/s i buffer local de 15 s.
-- Persistència atòmica al volum persistent. Fins a 3 incidències i 3 captures per alumne; límit global d’evidències aproximat de 64 MiB, retirant primer les imatges antigues amb registre d’aquesta retirada.
-- Exportació sense tokens ni claus; esborrat de sessions finalitzades i neteja del registre general.
-- HTTPS de confiança a l’aula; sense TLS només localhost. No s’envien dades a GitHub, Gemini ni serveis externs, excepte les peticions que faci el web d’examen escollit.
+| ID | Comportament | Estat |
+|---|---|---|
+| WEB-01 | Portada d’alumnat; docent a `/administration/`, compatible amb recàrrega de GitHub Pages. | Implementat |
+| WEB-02 | Connexió directa sense API, WebSocket, STUN, TURN ni senyalització externa. | Implementat amb intercanvi manual d’oferta/resposta |
+| WEB-03 | Sense subscripcions, claus d’API ni desplegament de servidor. | Implementat |
+| WEB-04 | Reobrir el panell al mateix navegador/perfil recupera sessions, alumnes, proves i identitat docent. | Implementat amb IndexedDB |
+| WEB-05 | Tancar el docent conserva la sessió en curs, però interromp la recepció. | Implementat; cal tornar a aparellar els alumnes |
+| WEB-06 | L’alumne conserva incidències pendents i les reenvia en reconnectar. | Implementat; imatges de les tres més recents, motius/hores de totes |
+| WEB-07 | Un únic panell docent actiu per perfil evita escriptures concurrents. | Implementat amb Web Locks |
+| WEB-08 | Recuperació després d’esborrar les dades del navegador o en un altre equip. | No implementat; l’informe exportat no restaura claus ni perfil |
+| WEB-09 | Funcionar entre xarxes arbitràries o amb aïllament de clients. | No garantit sense relé; cal una xarxa amb connexió directa permesa |
+| WEB-10 | Rebre dades amb tots els navegadors del docent tancats. | No possible amb aquest model; dades pendents a l’alumne |
 
-## Pendent abans de considerar-ho un producte d’examen segur
+## Identitat, seguretat i desat
 
-1. Client instal·lat o entorn gestionat per restringir sistema operatiu, processos, navegació i porta-retalls.
-2. Identitat institucional i vinculació fiable de dispositius; un nom autodeclarat no acredita qui és l’alumne.
-3. Validació real de 30 dispositius, HTTPS, tallafoc i xarxa del centre.
-4. Integració amb les plataformes d’examen que no admeten iframe i validació de conservació/lliurament de respostes.
-5. Temporització autoritativa, inici programat i política de finalització per temps.
-6. Auditar resistència a clients manipulats, retenció per dies, registres i gestió d’autoritzacions del centre.
+L’accés a `/administration/` obre el perfil local d’aquell navegador: no concedeix accés al perfil d’un altre ordinador. No és un inici de sessió remot. Qui tingui accés al mateix perfil del navegador docent pot veure’n les dades.
 
-## Proves automatitzades
+L’intercanvi manual de les invitacions ha de ser de confiança. El primer aparellament fixa la clau pública del docent; les reconnexions no accepten una clau diferent. Les ordres van signades amb ECDSA P-256 i inclouen destinatari, aparellament, nonce i caducitat. WebRTC aporta xifrat DTLS al canal. Els noms no acrediten la identitat institucional.
 
-El workflow comprova TypeScript, compilació, Pages, autenticació, aïllament d’alumnes, transmissió d’imatges, evidències, signatures, confirmacions, replay, persistència i finalització. La prova Playwright simula la font de captura per verificar el transport i els controls; **no valida el diàleg de captura real del sistema**.
+Els missatges grans es fragmenten i hi ha límits de mida i cua. Les proves rebudes només es confirmen després de completar l’escriptura local. En cas de quota insuficient, s’avisa el docent i l’alumne conserva el pendent. No hi ha límit de retenció temporal ni sincronització al núvol: cal conservar el perfil i exportar els informes necessaris. No s’exporten tokens ni claus privades.
 
-Consulteu el resultat efectiu a GitHub Actions. Les instruccions d’arrencada i HTTPS són a [README.md](README.md).
+## Validació
 
-## Rutes i recuperació de la sessió docent (01/10/2026)
+El workflow exigeix comprovació TypeScript, compilació estàtica, rutes de Pages i una prova de dos processos de navegador amb **WebRTC natiu**: aparellament, miniatura, captura manual, incidència, desbloqueig signat, conservació de respostes en iframe, reinici complet del navegador docent, recuperació de sessió i proves, reenviament pendent i finalització. La font de captura és sintètica per automatitzar la prova; no s’inventa el transport.
 
-- WEB-01: portada exclusiva per a alumnat; sense selector de rol docent.
-- WEB-02: /administration amb contrasenya i autorització efectiva de l’API i el WebSocket.
-- WEB-03: recuperació automàtica en recarregar/reobrir, mitjançant cookie HttpOnly de fins a 8 hores.
-- WEB-04: sessions d’examen, alumnes, bloquejos, captures i incidències es recuperen del servidor; no depenen de la pestanya docent.
-- WEB-05: tancar la pestanya o la identificació docent no finalitza els exàmens. Només l’acció Finalitzar sessió els acaba.
-- WEB-06: credencials temporals persistents, amb caducitat i revocació; es mantenen en reiniciar el servidor amb el mateix disc i contrasenya.
-- WEB-07: Pages amb entrada estàtica real /administration/ i redirecció opcional a un servei HTTPS.
-- WEB-08: blueprint d’allotjament amb disc persistent. Activació externa pendent; no s’ha contractat cap servei.
-
-Prova funcional afegida: crear sessió, connectar alumne, tancar navegador docent, generar incidència, reobrir panell, recuperar-la i desbloquejar. La prova de servidor també comprova recuperació de credencials i estat després d’un reinici, i revocació explícita de l’accés.
+Cal provar al centre el diàleg real de compartició, la compatibilitat d’iframe de l’examen, la xarxa sense aïllament, el rendiment de l’aula i la política de retenció. No s’afirma que s’hagin validat 30 ordinadors ni que una web sigui un entorn de bloqueig segur del sistema.

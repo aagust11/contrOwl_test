@@ -33,37 +33,12 @@ jobs:
       - run: node scripts/smoke-pages.mjs
         env:
           PAGES_BASE_PATH: /${{ github.event.repository.name }}/
-      - name: Build published entrypoint
-        run: bun run build
+      - run: bun run test:peer
         env:
           PAGES_BASE_PATH: /${{ github.event.repository.name }}/
-          VITE_CONTROWL_SERVICE_URL: ${{ vars.CONTROWL_SERVICE_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-      - name: Build application for teacher computer
-        run: bun run build
-        env:
-          PAGES_BASE_PATH: /
-      - run: bun run test:live
-      - run: bun run test:live-browser
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ContrOwl-Docent
-          path: |
-            dist/
-            src/
-            server.ts
-            package.json
-            bun.lock
-            vite.config.ts
-            tsconfig.json
-            index.html
-            public/
-            README.md
-            REQUERIMENTS.md
-            Iniciar-Docent.cmd
-            scripts/
   deploy:
     if: github.event_name != 'pull_request'
     needs: build
@@ -78,3 +53,4 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/deploy-pages@v4
         id: deployment
+
