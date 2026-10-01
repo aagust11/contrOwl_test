@@ -21,7 +21,12 @@ try {
   page.on('response', response => { if (response.url().startsWith(origin) && response.status() >= 400) errors.push(response.url()); });
   page.on('websocket', socket => errors.push('Unexpected WebSocket: ' + socket.url()));
   await page.goto(origin + base, { waitUntil: 'networkidle' });
-  assert(await page.getByRole('heading', { name: 'Connecta amb l’ordinador del docent' }).isVisible());
+  assert(await page.getByRole('heading', { name: 'Entrar a la sessió' }).isVisible());
+  assert(await page.getByRole('button', { name: 'Entrar', exact: true }).isDisabled());
+  await page.goto(origin + base + 'administration/', { waitUntil: 'networkidle' });
+  assert(await page.getByRole('heading', { name: 'Accés del docent' }).isVisible());
+  await page.reload({ waitUntil: 'networkidle' });
+  assert(await page.getByRole('heading', { name: 'Accés del docent' }).isVisible());
   await page.goto(origin + base + '?demo=1', { waitUntil: 'networkidle' });
   assert(await page.getByRole('note').getByText('Demostració local.', { exact: true }).isVisible());
   assert(await page.locator('header img').first().evaluate(img => img.complete && img.naturalWidth > 0), 'Logo failed');

@@ -1,0 +1,31 @@
+# Activating this blueprint creates a PAID web service and persistent disk.
+# This file alone does not provision or charge anything.
+services:
+  - type: web
+    name: controwl
+    runtime: node
+    plan: 0.5c-512mb
+    region: frankfurt
+    buildCommand: NODE_ENV=development bun install --frozen-lockfile && bun run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    disk:
+      name: controwl-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: PAGES_BASE_PATH
+        value: /
+      - key: CONTROWL_HOST
+        value: 0.0.0.0
+      - key: CONTROWL_DATA_DIR
+        value: /var/data
+      - key: CONTROWL_TRUST_PROXY
+        value: "1"
+      - key: CONTROWL_ADMIN_PASSWORD
+        generateValue: true

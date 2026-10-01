@@ -50,10 +50,32 @@ function persist() {
 function schedulePersist() { clearTimeout(persistTimer); persistTimer = setTimeout(persist, 500); }
 function audit(message: string) { logs.push({ at: Date.now(), message }); logs = logs.slice(-1000); schedulePersist(); }
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+if (process.env.NODE_ENV === 'production' && !process.env.CONTROWL_ADMIN_PASSWORD) throw new Error('Configura CONTROWL_ADMIN_PASSWORD al servei allotjat');
 const secret = process.env.CONTROWL_ADMIN_PASSWORD || randomBytes(18).toString('base64url');
 if (secret.length < 12) throw new Error('CONTROWL_ADMIN_PASSWORD must have at least 12 characters');
 const passwordHash = hash(secret);
-const adminTokens = new Map<string, number>();
+const authPath = path.join(dataDir, 'admin-sessions.json');
+let adminTokens = new Map<string, number>();
+if (fs.existsSync(authPath)) {
+  const saved = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+  if (saved.passwordHash === passwordHash && Array.isArray(saved.tokens))
+    adminTokens = new Map(saved.tokens.filter((entry: [string, number]) => entry[1] > Date.now()));
+}
+function saveAdminSessions() {
+  fs.writeFileSync(authPath + '.tmp', JSON.stringify({ passwordHash, tokens: [...adminTokens] }), { mode: 0o600 });
+  fs.renameSync(authPath + '.tmp', authPath);
+}
+function cookieToken(header?: string) {
+  return (header || '').split(';').map(x => x.trim()).find(x => x.startsWith('controwl_admin='))?.slice(15) || '';
+}
+function adminExpiry(token: string) { return adminTokens.get(hash(token)) || 0; }
+function requestToken(req: http.IncomingMessage) {
+  return req.headers.authorization?.replace(/^Bearer /, '') || cookieToken(req.headers.cookie);
+}
+const secureCookies = process.env.NODE_ENV === 'production' || process.env.CONTROWL_PUBLIC_URL?.startsWith('https:') || !!process.env.CONTROWL_TLS_CERT;
+function setAdminCookie(res: express.Response, token: string, clear = false) {
+  res.setHeader('Set-Cookie', 'controwl_admin=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + (clear ? '0' : '28800') + (secureCookies ? '; Secure' : ''));
+}
 const attempts = new Map<string, { count: number; since: number }>();
 function limited(key: string, max: number) {
   const now = Date.now(); let entry = attempts.get(key);
@@ -66,6 +88,7 @@ function sameOrigin(origin: string | undefined, host: string | undefined) {
 }
 const app = express();
 app.disable('x-powered-by');
+if (process.env.CONTROWL_TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use(express.json({ limit: '32kb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -76,8 +99,8 @@ app.use((req, res, next) => {
   next();
 });
 function admin(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const token = req.headers.authorization?.replace(/^Bearer /, '') || '';
-  if ((adminTokens.get(token) || 0) < Date.now()) { res.status(401).json({ error: 'Cal iniciar sessió com a docent' }); return; }
+  const token = requestToken(req);
+  if (adminExpiry(token) < Date.now()) { res.status(401).json({ error: 'Cal iniciar sessió com a docent' }); return; }
   next();
 }
 const clean = (v: unknown, max = 100) => typeof v === 'string' ? v.trim().slice(0, max) : '';
@@ -91,7 +114,7 @@ function safeStudent(s: StoredStudent, detail = false) {
     incidents: s.incidents.map(i => ({ ...i, frames: [] })), snapshots: [] };
 }
 function teacherState() { return { sessions, students: students.map(s => safeStudent(s)), logs }; }
-interface Client { ws: WebSocket; role?: 'teacher' | 'student'; student?: StoredStudent; alive: boolean; messages: number; }
+interface Client { adminHash?: string; ws: WebSocket; role?: 'teacher' | 'student'; student?: StoredStudent; alive: boolean; messages: number; }
 const clients = new Set<Client>();
 function send(client: Client, msg: unknown) {
   if (client.ws.readyState !== WebSocket.OPEN) return;
@@ -121,8 +144,15 @@ app.post('/api/login', (req, res) => {
   const candidate = hash(clean(req.body.password, 300));
   if (!timingSafeEqual(Buffer.from(candidate), Buffer.from(passwordHash))) { res.status(401).json({ error: 'Contrasenya incorrecta' }); return; }
   const token = randomBytes(32).toString('base64url');
-  adminTokens.set(token, Date.now() + 8 * 3600000);
+  adminTokens.set(hash(token), Date.now() + 8 * 3600000);
+  saveAdminSessions(); setAdminCookie(res, token);
   res.json({ token });
+});
+app.get('/api/auth', admin, (_req, res) => res.json({ authenticated: true }));
+app.post('/api/logout', (req, res) => {
+  const key = hash(requestToken(req)); adminTokens.delete(key); saveAdminSessions(); setAdminCookie(res, '', true);
+  for (const c of clients) if (c.adminHash === key) c.ws.close(1008, 'Sessió docent tancada');
+  res.json({ ok: true });
 });
 app.get('/api/state', admin, (_req, res) => res.json(teacherState()));
 app.post('/api/sessions', admin, (req, res) => {
@@ -183,6 +213,7 @@ app.delete('/api/sessions/:id', admin, (req, res) => {
   logs = []; persist(); update(); res.json({ ok: true });
 });
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Ruta no trobada' }));
+app.get('/administration', (_req, res) => res.sendFile(path.resolve('dist/index.html')));
 app.use(express.static(path.resolve('dist')));
 app.get('*', (_req, res) => res.sendFile(path.resolve('dist/index.html')));
 
@@ -206,8 +237,9 @@ wss.on('connection', (ws, req) => {
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'AUTH') {
         if (c.role) throw new Error('Already authenticated');
-        if (msg.role === 'teacher' && (adminTokens.get(msg.token) || 0) > Date.now()) {
-          c.role = 'teacher'; send(c, { type: 'STATE', ...teacherState() });
+        const teacherToken = typeof msg.token === 'string' && msg.token ? msg.token : cookieToken(req.headers.cookie);
+        if (msg.role === 'teacher' && adminExpiry(teacherToken) > Date.now()) {
+          c.adminHash = hash(teacherToken); c.role = 'teacher'; send(c, { type: 'STATE', ...teacherState() });
         } else if (msg.role === 'student') {
           const s = students.find(s => s.id === msg.studentId && s.tokenHash === hash(clean(msg.token, 100)));
           if (!s) { ws.close(1008, 'Invalid credential'); return; }
@@ -269,6 +301,7 @@ wss.on('connection', (ws, req) => {
 const heartbeat = setInterval(() => {
   for (const c of clients) {
     c.messages = 0;
+    if (c.role === 'teacher' && (adminTokens.get(c.adminHash || '') || 0) <= Date.now()) { c.ws.close(1008, 'Sessió docent caducada'); continue; }
     if (!c.alive) { c.ws.terminate(); continue; }
     c.alive = false; c.ws.ping();
   }
@@ -282,16 +315,18 @@ const heartbeat = setInterval(() => {
 const port = Number(process.env.PORT || 3000);
 const host = process.env.CONTROWL_HOST || (cert ? '0.0.0.0' : '127.0.0.1');
 server.listen(port, host, () => {
-  console.log('ContrOwl — servidor del docent');
-  console.log('Contrasenya docent (només al vostre ordinador): ' + secret);
-  console.log('Docent: ' + (cert ? 'https' : 'http') + '://localhost:' + port);
+  console.log('ContrOwl — servei web persistent');
+  if (!process.env.CONTROWL_ADMIN_PASSWORD) console.log('Contrasenya docent de desenvolupament: ' + secret);
+  const origin = process.env.CONTROWL_PUBLIC_URL || (cert ? 'https' : 'http') + '://localhost:' + port;
+  console.log('Alumnat: ' + origin + '/');
+  console.log('Administració: ' + origin + '/administration');
   if (cert) for (const nets of Object.values(networkInterfaces())) for (const n of nets || []) {
     if (n.family === 'IPv4' && !n.internal) console.log('Alumnat: https://' + n.address + ':' + port);
   }
-  if (!cert) console.log('Mode local. Per a l’aula cal certificat HTTPS de confiança i CONTROWL_TLS_CERT/KEY.');
+  if (!cert && !process.env.CONTROWL_PUBLIC_URL) console.log('Mode local. Per a l’aula cal certificat HTTPS de confiança i CONTROWL_TLS_CERT/KEY.');
 });
 function shutdown() {
-  clearInterval(heartbeat); persist();
+  clearInterval(heartbeat); persist(); saveAdminSessions();
   for (const c of clients) c.ws.terminate();
   server.close(() => process.exit(0));
 }

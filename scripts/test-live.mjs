@@ -78,7 +78,8 @@ try {
   assert(!JSON.stringify(exportData).includes('tokenHash'), 'export leaked credentials');
   for (const socket of sockets) socket.close();
   await stop(); await start();
-  const token2 = (await request('/login', '', { password })).data.token;
+  assert.equal((await request('/auth', token)).status, 200, 'teacher credential not recovered after server restart');
+  const token2 = token;
   detail = (await request('/students/' + a.studentId, token2)).data;
   assert(detail.blocked && !detail.connected && detail.incidents.length === 2 && detail.snapshots.length === 1, 'restart lost evidence or lock');
   const resumed = await connect({ role: 'student', token: a.token, studentId: a.studentId });
@@ -88,6 +89,8 @@ try {
   assert.equal((await request('/join', '', { code: 'ABC234', name: 'Late student', device: 'PC-L' })).status, 400);
   await request('/sessions/' + session.id, token2, undefined, 'DELETE');
   assert.equal((await request('/state', token2)).data.students.length, 0);
+  await request('/logout', token2, {});
+  assert.equal((await request('/auth', token2)).status, 401, 'logout did not revoke credential');
   console.log('Live integration passed: auth, isolation, frame transport, evidence, signed commands, ACK, replay, restart, end, deletion.');
 } finally {
   for (const ws of sockets) ws.terminate();

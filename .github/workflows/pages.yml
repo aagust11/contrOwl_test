@@ -33,6 +33,11 @@ jobs:
       - run: node scripts/smoke-pages.mjs
         env:
           PAGES_BASE_PATH: /${{ github.event.repository.name }}/
+      - name: Build published entrypoint
+        run: bun run build
+        env:
+          PAGES_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_CONTROWL_SERVICE_URL: ${{ vars.CONTROWL_SERVICE_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

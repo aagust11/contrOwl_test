@@ -47,39 +47,20 @@ function useSocket(auth: Record<string, string> | null, receive: (msg: any) => v
   }, []);
   return { connected, send };
 }
-function Launcher() {
-  const [address, setAddress] = useState(''); const [error, setError] = useState('');
-  return <section className={panel + ' max-w-xl mx-auto space-y-4'}>
-    <h2 className="text-xl font-bold">Connecta amb l’ordinador del docent</h2>
-    <p>El docent ha d’arrencar ContrOwl al seu ordinador. Les pantalles i les incidències s’envien directament a aquell equip.</p>
-    <form onSubmit={e => { e.preventDefault(); try {
-      const url = new URL(address);
-      if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Introdueix una adreça HTTPS, sense usuari ni contrasenya.');
-      url.pathname = '/'; url.search = ''; url.hash = ''; location.assign(url.href);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Adreça incorrecta'); } }} className="space-y-3">
-      <label className="block">Adreça del docent<input className={field} placeholder="https://192.168.1.50:3000" value={address} onChange={e => setAddress(e.target.value)} required /></label>
-      <button className={button}>Connectar amb el docent</button>
-    </form>
-    {error && <p role="alert" className="text-rose-300">{error}</p>}
-    <p className="text-sm text-slate-400">La web pública és el punt d’entrada. El servidor s’executa al PC del docent, dins la xarxa de l’aula.</p>
-    <a className="text-indigo-300 underline block" href="https://github.com/aagust11/contrOwl_test/blob/main/README.md">Preparar l’ordinador del docent</a>
-    <a className="text-slate-400 underline block text-sm" href="?demo=1">Obrir la demostració amb dades fictícies</a>
-  </section>;
-}
-function Teacher({ token }: { token: string }) {
+function Teacher({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [state, setState] = useState<TeacherState>({ sessions: [], students: [], logs: [] });
   const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [name, setName] = useState(''); const [url, setUrl] = useState(''); const [code, setCode] = useState('');
   const [selected, setSelected] = useState<LiveStudent | null>(null);
   const [index, setIndex] = useState(0);
-  const { connected } = useSocket({ role: 'teacher', token }, msg => {
+  const { connected } = useSocket({ role: 'teacher' }, msg => {
     if (msg.type === 'STATE') setState({ sessions: msg.sessions, students: msg.students, logs: msg.logs });
     if (msg.type === 'FRAME') setState(prev => ({ ...prev, students: prev.students.map(s => s.id === msg.studentId ? { ...s, image: msg.frame.image, lastFrameAt: msg.frame.at } : s) }));
-    if (msg.type === 'ERROR') setError(msg.error);
+    if (msg.type === 'ERROR') { setError(msg.error); onSessionExpired(); }
   });
   async function action(route: string, data?: unknown, method?: string) {
     setError(''); setNotice('');
-    try { return await api(route, token, data, method); } catch (e) { setError((e as Error).message); return null; }
+    try { return await api(route, '', data, method); } catch (e) { setError((e as Error).message); return null; }
   }
   async function detail(id: string) { const s = await action('/students/' + id); if (s) { setSelected(s); setIndex(0); } }
   async function exportData() {
@@ -90,8 +71,8 @@ function Teacher({ token }: { token: string }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   return <div className="space-y-5">
-    <div className="flex flex-wrap justify-between gap-3"><h2 className="text-2xl font-bold">Panell del docent</h2><span role="status">{connected ? 'Connectat al servidor del docent' : 'Sense connexió · reconnectant'}</span></div>
-    <p>Adreça per a l’alumnat: <strong>{location.origin}</strong>. Si aquí diu localhost, utilitza l’adreça de xarxa que mostra la consola del servidor.</p>
+    <div className="flex flex-wrap justify-between gap-3"><h2 className="text-2xl font-bold">Panell del docent</h2><span role="status">{connected ? 'Connectat al servei' : 'Sense connexió · reconnectant'}</span></div>
+    <p>Adreça per a l’alumnat: <strong>{location.origin}/</strong>. Pots tancar aquest panell i tornar a /administration: el servidor manté la sessió activa.</p>
     {error && <p role="alert" className="bg-rose-950 p-3 rounded-xl">{error}</p>}
     {notice && <p role="status" className="bg-indigo-950 p-3">{notice}</p>}
     <form className={panel + ' grid md:grid-cols-4 gap-3 items-end'} onSubmit={async e => { e.preventDefault();
@@ -104,7 +85,7 @@ function Teacher({ token }: { token: string }) {
       <button className={button} disabled={!connected}>Crear sessió</button>
     </form>
     <div className="flex gap-3 flex-wrap"><button className={button} onClick={exportData}>Exportar evidències</button>
-      <span className="text-sm text-slate-400">Es desen al PC del docent. Retenció limitada: 3 incidències i 3 captures per alumne; exporta abans d’esborrar.</span></div>
+      <span className="text-sm text-slate-400">Es desen al servidor. Retenció limitada: 3 incidències i 3 captures per alumne; exporta abans d’esborrar.</span></div>
     {state.sessions.map(session => <section key={session.id} className={panel + ' space-y-4'}>
       <div className="flex justify-between gap-3 flex-wrap"><div><h3 className="font-bold text-xl">{session.name}</h3>
         <p>Codi: <strong className="font-mono text-2xl text-indigo-300">{session.code}</strong> · {session.endedAt ? 'Finalitzada' : 'Activa'}</p>
@@ -152,7 +133,7 @@ function Teacher({ token }: { token: string }) {
     </div>}
   </div>;
 }
-function Student() {
+function Student({ unavailable = false }: { unavailable?: boolean }) {
   const [credentials, setCredentials] = useState<Credentials | null>(() => {
     try { return JSON.parse(sessionStorage.getItem('controwl-student') || 'null'); } catch { return null; }
   });
@@ -252,14 +233,15 @@ function Student() {
   return <div className="space-y-4">
     {error && <p role="alert" className="bg-rose-950 rounded-xl p-4">{error}</p>}
     {!credentials ? <form className={panel + ' max-w-lg mx-auto space-y-4'} onSubmit={async e => { e.preventDefault(); setError('');
-      try { const creds = await api('/join', '', { code, name, device }); sessionStorage.setItem('controwl-student', JSON.stringify(creds)); setCredentials(creds); } catch (e) { setError((e as Error).message); }
+      try { if (unavailable) throw new Error('Servei pendent d’activació'); const creds = await api('/join', '', { code, name, device }); sessionStorage.setItem('controwl-student', JSON.stringify(creds)); setCredentials(creds); } catch (e) { setError((e as Error).message); }
     }}>
       <h2 className="font-bold text-xl">Entrar a la sessió</h2>
       <label className="block">Codi de sessió<input className={field} value={code} onChange={e => setCode(e.target.value.toUpperCase())} maxLength={6} required /></label>
       <label className="block">Nom i cognoms<input className={field} value={name} onChange={e => setName(e.target.value)} required minLength={3} /></label>
       <label className="block">Dispositiu<input className={field} placeholder="PC-12" value={device} onChange={e => setDevice(e.target.value)} required /></label>
-      <p className="text-sm text-slate-300">Durant la sessió s’enviarà una imatge per segon de la pantalla seleccionada al PC del docent. Es conservaran els darrers 15 segons en memòria i es desaran al docent quan hi hagi una incidència. No es captura àudio.</p>
-      <button className={button}>Entrar</button>
+      <p className="text-sm text-slate-300">Durant la sessió s’enviarà una imatge per segon de la pantalla seleccionada al servidor. Es conservaran els darrers 15 segons en memòria i es desaran al docent quan hi hagi una incidència. No es captura àudio.</p>
+      {unavailable && <p role="status" className="text-amber-300">El servei de sessions està pendent d’activació. Encara no es poden connectar alumnes des d’aquesta adreça.</p>}
+      <button className={button} disabled={unavailable}>Entrar</button>
     </form> : <>
       <section className={panel + ' flex flex-wrap justify-between gap-4 items-center'}>
         <div><h2 className="font-bold text-xl">{credentials.session.name}</h2><p>{connected ? 'Connectat al docent' : 'Reconnectant amb el docent…'} · {sharing ? 'Compartint pantalla amb el docent' : 'No s’està compartint pantalla'}</p></div>
@@ -276,20 +258,55 @@ function Student() {
   </div>;
 }
 export default function LiveApp() {
-  const [role, setRole] = useState<'student' | 'teacher'>('student');
-  const [token, setToken] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState('');
-  const isPages = import.meta.env.BASE_URL !== '/';
+  const base = import.meta.env.BASE_URL;
+  const relativePath = location.pathname.startsWith(base) ? location.pathname.slice(base.length) : location.pathname.replace(/^\//, '');
+  const administration = relativePath.replace(/\/+$/, '') === 'administration';
+  const isPages = base !== '/';
+  const serviceUrl = (import.meta.env.VITE_CONTROWL_SERVICE_URL || '').trim();
+  const [authenticated, setAuthenticated] = useState(false);
+  const [checking, setChecking] = useState(administration && !isPages);
+  const [password, setPassword] = useState(''); const [error, setError] = useState('');
+  useEffect(() => {
+    if (!isPages || !serviceUrl) return;
+    try {
+      const target = new URL(serviceUrl);
+      if (target.protocol !== 'https:' || target.username || target.password || target.origin === location.origin) throw new Error('Invalid service URL');
+      target.pathname = administration ? '/administration' : '/'; target.search = ''; target.hash = '';
+      location.replace(target.href);
+    } catch { setError('La configuració de l’allotjament no és vàlida.'); }
+  }, [isPages, serviceUrl, administration]);
+  useEffect(() => {
+    if (!administration || isPages) return;
+    let stopped = false;
+    fetch('/api/auth', { credentials: 'same-origin' }).then(res => {
+      if (stopped) return;
+      if (res.ok) setAuthenticated(true);
+      else if (res.status !== 401) setError('No s’ha pogut recuperar la sessió.');
+    }).catch(() => { if (!stopped) setError('No es pot contactar amb el servidor.'); })
+      .finally(() => { if (!stopped) setChecking(false); });
+    return () => { stopped = true; };
+  }, [administration, isPages]);
+  async function logout() {
+    try { await api('/logout', '', {}); setAuthenticated(false); }
+    catch (e) { setError((e as Error).message); }
+  }
   return <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
     <header className="max-w-7xl mx-auto mb-8 flex justify-between gap-3 items-center">
-      <div className="flex items-center gap-3"><img src={import.meta.env.BASE_URL + 'contrOwl.png'} alt="ContrOwl" className="w-12 h-12 object-contain" /><div><h1 className="text-2xl font-black">ContrOwl</h1><p className="text-sm text-slate-400">Supervisió connectada a l’ordinador del docent</p></div></div>
-      {!isPages && <button className="text-sm underline" onClick={() => setRole(role === 'teacher' ? 'student' : 'teacher')}>{role === 'student' ? 'Soc docent' : 'Accés alumnat'}</button>}
+      <div className="flex items-center gap-3"><img src={base + 'contrOwl.png'} alt="ContrOwl" className="w-12 h-12 object-contain" /><div><h1 className="text-2xl font-black">ContrOwl</h1><p className="text-sm text-slate-400">{administration ? 'Administració docent' : 'Accés de l’alumnat'}</p></div></div>
+      {administration && <div className="flex gap-4 items-center"><a className="text-sm underline" href={base}>Accés alumnat</a>{authenticated && <button className={button} onClick={logout}>Tancar sessió docent</button>}</div>}
     </header>
     <div className="max-w-7xl mx-auto">
-      {isPages ? <Launcher /> : role === 'student' ? <Student /> : token ? <Teacher token={token} /> :
-        <form className={panel + ' max-w-lg mx-auto space-y-4'} onSubmit={async e => { e.preventDefault(); try { const result = await api('/login', '', { password }); setToken(result.token); setPassword(''); } catch (e) { setError((e as Error).message); } }}>
-          <h2 className="text-xl font-bold">Accés del docent</h2><p>La contrasenya es mostra a la consola del servidor al teu ordinador.</p>
+      {error && <p role="alert" className="bg-rose-950 p-4 rounded-xl mb-4">{error}</p>}
+      {!administration ? <Student unavailable={isPages} /> : checking ? <p role="status">Recuperant la sessió docent…</p> : authenticated ? <Teacher onSessionExpired={() => { setAuthenticated(false); setError('La sessió docent ha caducat. Torna a identificar-te; les dades es conserven.'); }} /> :
+        <form className={panel + ' max-w-lg mx-auto space-y-4'} onSubmit={async e => { e.preventDefault(); try {
+          if (isPages) throw new Error('Cal activar l’allotjament del servei.');
+          await api('/login', '', { password }); setAuthenticated(true); setPassword(''); setError('');
+        } catch (e) { setError((e as Error).message); } }}>
+          <h2 className="text-xl font-bold">Accés del docent</h2>
+          <p>En tornar a entrar es recuperen les sessions i les incidències desades. Tancar aquesta pàgina no finalitza els exàmens.</p>
+          {isPages && <p className="text-amber-300">Pendent d’activar el servidor persistent. GitHub Pages només allotja aquesta interfície.</p>}
           <label className="block">Contrasenya docent<input className={field} type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
-          {error && <p role="alert">{error}</p>}<button className={button}>Iniciar sessió</button>
+          <button className={button} disabled={isPages}>Iniciar sessió</button>
         </form>}
     </div>
   </main>;
