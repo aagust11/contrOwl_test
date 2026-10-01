@@ -67,6 +67,7 @@ export class DirectPeer {
     connection.on('open', () => this.onopen());
     connection.on('close', () => this.close());
     connection.on('error', () => this.close());
+    connection.on('iceStateChanged', state => {if (['disconnected', 'failed', 'closed'].includes(state)) this.close();});
     connection.on('data', data => {
       try {
         if (typeof data !== 'string' || data.length > 20000) return;
