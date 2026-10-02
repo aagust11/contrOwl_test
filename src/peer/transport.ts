@@ -41,16 +41,20 @@ export class SessionHost {
 }
 export function joinSession(code: string): Promise<DirectPeer> {
   return new Promise((resolve, reject) => {
-    const peer = new Peer(options()); let direct: DirectPeer | undefined;
-    const timeout = setTimeout(() => {peer.destroy(); reject(Error('El servei de connexió no respon.'));}, 15000);
-    peer.on('error', () => {
-      clearTimeout(timeout);
-      if (direct) direct.close(); else {peer.destroy(); reject(Error('No s’ha pogut trobar el docent. Comprova el codi i que tingui el panell obert.'));}
-    });
+    const peer = new Peer(options()); let direct: DirectPeer | undefined; let settled = false;
+    const fail = (message: string) => {
+      if (settled) {direct?.close(); return;}
+      settled = true; clearTimeout(timeout); direct?.close(); peer.destroy(); reject(Error(message));
+    };
+    // Keep a deadline until the actual data channel opens, not just the signaling socket.
+    const timeout = setTimeout(() => fail('No s’ha pogut connectar amb el docent. Comprova el codi i la xarxa.'), 20000);
+    peer.on('error', () => fail('No s’ha pogut trobar el docent. Comprova el codi i que tingui el panell obert.'));
+    peer.on('disconnected', () => {if (!settled) fail('S’ha interromput el servei de connexió.');});
     peer.on('open', () => {
-      clearTimeout(timeout);
       direct = new DirectPeer(peer.connect(address(code), {reliable: true, serialization: 'json'}), peer);
-      resolve(direct);
+      direct.onclose = () => fail('No s’ha pogut obrir el canal amb el docent.');
+      direct.onopen = () => {if (!settled) {settled = true; clearTimeout(timeout); resolve(direct!);}};
+      if (direct.connected) direct.onopen();
     });
   });
 }
@@ -63,11 +67,16 @@ export class DirectPeer {
   private queue: Promise<void> = Promise.resolve();
   private pending = 0;
   private closed = false;
+  private disconnectTimer?: ReturnType<typeof setTimeout>;
   constructor(private connection: DataConnection, private owner?: Peer) {
     connection.on('open', () => this.onopen());
     connection.on('close', () => this.close());
     connection.on('error', () => this.close());
-    connection.on('iceStateChanged', state => {if (['disconnected', 'failed', 'closed'].includes(state)) this.close();});
+    connection.on('iceStateChanged', state => {
+      clearTimeout(this.disconnectTimer);
+      if (state === 'disconnected') this.disconnectTimer = setTimeout(() => this.close(), 8000);
+      else if (state === 'failed' || state === 'closed') this.close();
+    });
     connection.on('data', data => {
       try {
         if (typeof data !== 'string' || data.length > 20000) return;
@@ -110,7 +119,7 @@ export class DirectPeer {
   }
   close() {
     if (this.closed) return;
-    this.closed = true; this.parts.clear(); this.connection.close(); this.owner?.destroy(); this.onclose();
+    this.closed = true; clearTimeout(this.disconnectTimer); this.parts.clear(); this.connection.close(); this.owner?.destroy(); this.onclose();
   }
 }
 export async function fingerprint(key: JsonWebKey) {

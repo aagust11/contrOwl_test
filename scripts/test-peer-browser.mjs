@@ -34,7 +34,7 @@ async function pair(student, teacher) {
   assert.equal(await student.locator('textarea').count(), 0, 'Manual pairing UI must be absent');
   await student.getByRole('button', {name: 'Entrar', exact: true}).click();
   await until(async () => (await student.getByRole('status').allTextContents()).some(s => s.includes('Connectat directament')), 'Automatic WebRTC connection failed');
-  await student.getByRole('button', {name: /Compartir pantalla i continuar|Pantalla compartida/}).waitFor();
+  await student.locator('.exam-mode iframe[title="Examen"]').waitFor();
 }
 
 try {
@@ -58,7 +58,7 @@ try {
       const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
       const ctx = canvas.getContext('2d'); ctx.fillStyle = '#136e63'; ctx.fillRect(0, 0, 640, 360);
       const stream = canvas.captureStream(1);
-      const track = stream.getVideoTracks()[0]; track.getSettings = () => ({displaySurface: 'monitor'});
+      const track = stream.getVideoTracks()[0]; window.__screenTrack = track; track.getSettings = () => ({displaySurface: 'monitor'});
       setInterval(() => {ctx.fillStyle = '#136e63'; ctx.fillRect(0, 0, 640, 360); ctx.fillStyle = 'white'; ctx.fillText(String(Date.now()), 10, 30);}, 900);
       return stream;
     };
@@ -70,7 +70,14 @@ try {
   // PeerJS creates a closed feature-probe PC on import. Inspect the actual connected PC.
   const configs = await s.evaluate(() => window.__iceConfigs.filter(v => v.pc.connectionState === 'connected').map(v => v.config));
   assert(configs.length > 0 && configs.every(c => c.iceServers.every(server => !/turns?:/.test(JSON.stringify(server)))), 'No relay servers allowed on active connections');
-  assert(await s.getByRole('button', {name: 'Pantalla compartida', exact: true}).isVisible(), 'Exam starts after Enter and screen consent');
+  assert(await s.locator('.exam-mode').isVisible(), 'Exam starts after Enter and screen consent');
+  assert.equal(await s.locator('header a:visible').count(), 1, 'Only the logo remains in the exam header');
+  assert.equal(await s.locator('footer:visible').count(), 0);
+  assert.equal(await s.getByRole('button', {name: 'Pantalla compartida', exact: true}).isVisible(), false);
+  const bounds = await s.locator('iframe[title="Examen"]').boundingBox();
+  const viewport = s.viewportSize();
+  assert.equal(bounds.width, viewport.width);
+  assert.equal(bounds.height, viewport.height - 52);
   await t.getByAltText('Pantalla de Alumne de prova', {exact: true}).waitFor();
   await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').fill('Resposta conservada');
   await t.getByRole('button', {name: 'Desar captura', exact: true}).click();
@@ -84,19 +91,27 @@ try {
   // Full teacher browser restart preserves IndexedDB, including the signing identity.
   await teacherContext.close(); teacherContext = undefined;
   await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).waitFor();
-  await until(async () => await s.getByTestId('pending-incidents').isVisible(), 'Offline incident not queued');
+  await until(async () => await s.getByTestId('overlay-pending-incidents').isVisible(), 'Offline incident not queued');
   t = await teacher();
   assert.equal(await t.getByTestId('session-code').innerText(), code);
   assert((await t.locator('summary').innerText()).includes('Incidències (1) i captures (1)'));
   await until(async () => (await s.getByRole('status').allTextContents()).some(v => v.includes('Connectat directament')), 'Automatic reconnect after teacher restart failed');
   await until(async () => (await t.locator('summary').innerText()).includes('Incidències (2)'), 'Buffered incident not delivered after restart');
-  await until(async () => !await s.getByTestId('pending-incidents').isVisible(), 'Persisted receipt not acknowledged');
+  await until(async () => !await s.getByTestId('overlay-pending-incidents').isVisible(), 'Persisted receipt not acknowledged');
   await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
   await until(async () => !await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).isVisible(), 'Reconnect unlock failed');
   assert.equal(await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').inputValue(), 'Resposta conservada');
+  // Screen sharing can be resumed from the blocking overlay, with the iframe preserved.
+  await s.evaluate(() => {window.__screenTrack.stop(); window.__screenTrack.dispatchEvent(new Event('ended'));});
+  await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).waitFor();
+  await s.getByRole('button', {name: 'Compartir pantalla i continuar', exact: true}).click();
+  await until(async () => (await t.locator('summary').innerText()).includes('Incidències (3)'), 'Stopped screen sharing incident missing');
+  await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
+  await until(async () => !await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).isVisible(), 'Screen sharing recovery failed');
+  assert.equal(await s.frameLocator('iframe[title="Examen"]').getByLabel('Resposta').inputValue(), 'Resposta conservada');
   await t.getByRole('button', {name: 'Bloquejar', exact: true}).click();
   await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).waitFor();
-  await until(async () => (await t.locator('summary').innerText()).includes('Incidències (3)'), 'Remote lock evidence missing');
+  await until(async () => (await t.locator('summary').innerText()).includes('Incidències (4)'), 'Remote lock evidence missing');
   await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
   await until(async () => !await s.getByRole('heading', {name: 'Sessió temporalment bloquejada', exact: true}).isVisible(), 'Remote lock release failed');
   await t.getByRole('button', {name: 'Finalitzar sessió', exact: true}).click();
