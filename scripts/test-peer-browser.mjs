@@ -33,7 +33,7 @@ async function pair(student, teacher) {
   await until(async () => (await teacher.getByTestId('discovery-status').innerText()).includes('Codi actiu'), 'Session code not registered with PeerJS');
   assert.equal(await student.locator('textarea').count(), 0, 'Manual pairing UI must be absent');
   await student.getByRole('button', {name: 'Entrar', exact: true}).click();
-  await until(async () => (await student.getByRole('status').allTextContents()).some(s => s.includes('Connectat directament')), 'Automatic WebRTC connection failed');
+  await until(async () => (await student.locator('[role="status"]').allTextContents()).some(s => s.includes('Connectat directament')), 'Automatic WebRTC connection failed');
   await student.locator('.exam-mode iframe[title="Examen"]').waitFor();
 }
 
@@ -95,7 +95,7 @@ try {
   t = await teacher();
   assert.equal(await t.getByTestId('session-code').innerText(), code);
   assert((await t.locator('summary').innerText()).includes('Incidències (1) i captures (1)'));
-  await until(async () => (await s.getByRole('status').allTextContents()).some(v => v.includes('Connectat directament')), 'Automatic reconnect after teacher restart failed');
+  await until(async () => (await s.locator('[role="status"]').allTextContents()).some(v => v.includes('Connectat directament')), 'Automatic reconnect after teacher restart failed');
   await until(async () => (await t.locator('summary').innerText()).includes('Incidències (2)'), 'Buffered incident not delivered after restart');
   await until(async () => !await s.getByTestId('overlay-pending-incidents').isVisible(), 'Persisted receipt not acknowledged');
   await t.getByRole('button', {name: 'Desbloquejar', exact: true}).click();
